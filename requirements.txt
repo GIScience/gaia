@@ -1,7 +1,7 @@
 dagster==1.10.18                       # core framework
 dagster-webserver==1.10.18             # the newer name for dagit’s webserver
 pandas==2.2.3                      # tabular data manipulation
-requests==2.32.3                   # download raster files from WorldPop
+requests==2.32.4                   # download raster files from WorldPop
 geopandas>=1.0.0                   # read and process vector data (shapefiles, GeoJSON)
 rasterio==1.4.3                    # raster I/O and metadata
 rioxarray>=0.15.0                  # raster stacking and CRS support
