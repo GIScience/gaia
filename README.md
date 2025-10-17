@@ -132,14 +132,6 @@ hdx_asset:
   config_path: path/to/hdx_config.yaml
 ```
 
-## GEE config
-
-If you want to use the NDVI & Crops Assets, ensure that you authenticate yourself with your credentials on Google Earth Engine.
-
-```sh
-earthengine authenticate
-```
-
 ## Configure and start up dagster interactively
 
 In your main assets config, set up the desired year you want to use in your ndvi_asset:
