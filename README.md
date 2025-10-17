@@ -140,12 +140,6 @@ ndvi_asset:
   year: [year] #e.g. [2022]
 ```
 
-In your main assets config, set up the desired years you want to compare in your crops_asset:
-```yaml
-crops_asset:
-  years: [year, year-1] #e.g. [2024, 2023]
-```
-
 In your main assets config, set up the desired admin levels in your main asset configuration:
 
 ```yaml
