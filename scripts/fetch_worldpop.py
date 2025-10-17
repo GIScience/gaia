@@ -183,8 +183,14 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
         stats = zonal_stats(gdf, path, stats="sum", nodata=0)
         results[ind] = [s["sum"] for s in stats]
 
-    # Round all numeric columns to 0 decimals
+    # Round numeric columns and handle NaN or inf safely
     numeric_cols = results.columns.drop(f"{admin_level}_PCODE")
+
+    # Replace non-finite values (NaN, inf) with 0 before conversion
+    results[numeric_cols] = results[numeric_cols].apply(
+        pd.to_numeric, errors="coerce"
+    ).fillna(0).replace([float("inf"), float("-inf")], 0)
+
     results[numeric_cols] = results[numeric_cols].round(0).astype(int)
 
     # 5) Save CSV
