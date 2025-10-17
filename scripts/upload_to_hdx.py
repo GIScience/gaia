@@ -20,13 +20,13 @@ def generate_links(country_code: str, local_folder: str):
     return links
 
 
-def get_country_slug(country_code: str, countries_config_path: str) -> str:
+def get_hdx_country(country_code: str, countries_config_path: str) -> str:
     """Get display name for a country from YAML mapping."""
     with open(countries_config_path, "r") as f:
         countries = yaml.safe_load(f)
     try:
-        slug = countries[country_code]["slug"]
-        return slug.replace("-", " ").title()
+        hdx_country = countries[country_code]["hdx_country"]
+        return hdx_country.replace("-", " ").title()
     except KeyError:
         raise ValueError(f"Country code '{country_code}' not found in {countries_config_path}")
 
@@ -34,10 +34,10 @@ def get_country_slug(country_code: str, countries_config_path: str) -> str:
 def create_country_dataset(country_code: str, country_name: str, links, config):
     """Create or update a 'Risk Assessment Indicators' dataset in HDX for the country."""
     dataset_name = f"{country_name} - Risk Assessment Indicators"
-    dataset_slug = dataset_name.lower().replace(" ", "-")
+    dataset_hdx_country = dataset_name.lower().replace(" ", "-")
 
     dataset = Dataset()
-    dataset["name"] = dataset_slug
+    dataset["name"] = dataset_hdx_country
     dataset["title"] = dataset_name
     dataset["owner_org"] = config["hdx"]["owner_org"]
     dataset["groups"] = [{"name": config["hdx"]["owner_org"]}]
@@ -241,7 +241,7 @@ def upload_to_hdx(country: str, config_file="configs/hdx_config.yaml", countries
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
 
-    country_name = get_country_slug(country, countries_config)
+    country_name = get_hdx_country(country, countries_config)
     local_folder = os.path.join("data", country, "output")
     if not os.path.isdir(local_folder):
         raise FileNotFoundError(f"Folder not found: {local_folder}")
