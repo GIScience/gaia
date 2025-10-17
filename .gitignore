@@ -83,6 +83,7 @@ dagster.yaml             # instance config (if sensitive)
 .terminal/      ~#       # if you use dagster-dev to launch a terminal
 
 # Data folders (if you don’t want to check in your raw or intermediate data)
+Temporary/
 data/
 **/data/
 *.geojson

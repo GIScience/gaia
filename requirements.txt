@@ -13,7 +13,8 @@ pyproj>=3.6.0                      # coordinate reference system handling
 exactextract==0.2.2                # fast zonal statistics (raster ↔ vector overlay)
 minio==7.2.15                      # interact with minio
 ohsome==0.4.0                      # ohsome api
-earthengine-api                    # google earth engine api
-geemap
-rasterstats
-overpass
+earthengine-api==1.6.4             # google earth engine api
+geemap==0.36.2                     # google earth engine mapping
+rasterstats==0.20.0                # zonal statistics
+hdx-python-api==6.4.6              # hdx api
+overpass==0.7                      # overpass api

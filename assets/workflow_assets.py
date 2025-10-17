@@ -1,4 +1,4 @@
-from dagster import MultiPartitionsDefinition, StaticPartitionsDefinition, asset, AssetIn, Output
+from dagster import MultiPartitionsDefinition, StaticPartitionsDefinition, asset, AssetIn
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -12,6 +12,7 @@ from scripts.fetch_floods_jrc import process_flood_impact, ALLOWED_RPS
 from scripts.fetch_facilities_ohsome_overpass import fetch_ohsome, fetch_overpass
 from scripts.fetch_ruralness_ghsl import compute_rural_population
 from scripts.fetch_access_minio import compute_access_population
+from dagster import Output
 from typing import List
 
 ASSET_CONFIG_YAML_PATH = os.path.join(os.getcwd(), "configs", "assets_config.yaml")
@@ -27,7 +28,7 @@ country_partitions = StaticPartitionsDefinition(partition_keys=ALL_COUNTRIES)
 
 
 category_partitions = StaticPartitionsDefinition(
-    ["demographics", "facilities"]
+    ["demographics", "facilities", "ndvi", "crops", "rural", "access", "coping", "vulnerability", "exposure"]
 )
 
 multi_partitions = MultiPartitionsDefinition(
@@ -453,51 +454,42 @@ def vulnerability_asset(context, demographics_asset: List[str], rural_asset: Lis
     return outputs
 
 @asset(
-    deps=["demographics_asset", "facilities_asset", "ndvi_asset", "crops_asset", "exposure_flood_asset", "vulnerability_asset"],
-    partitions_def=country_partitions,
+    deps=["demographics_asset", "facilities_asset", "coping_asset", "exposure_flood_asset", "vulnerability_asset"],
+    partitions_def=multi_partitions,
 )
 def upload_minio_asset(context):
-    country = context.partition_key
+    parts = context.partition_key.split("|")
+    country, category = parts[1], parts[0]
+    
     output_dir = os.path.join("data", country, "Output")
 
     if not os.path.isdir(output_dir):
-        raise FileNotFoundError(f"Output folder not found: {output_dir}")
+        raise FileNotFoundError(f"[{country}] Output folder not found: {output_dir}")
 
     files = os.listdir(output_dir)
+    matched = [f for f in files if category in f.lower()]
 
-    dataset_types = {
-        "demographics": [f for f in files if "demographics" in f.lower()],
-        "facilities": [f for f in files if "facilities" in f.lower()],
-        "ndvi": [f for f in files if "ndvi" in f.lower()],
-        "crops": [f for f in files if "crops" in f.lower()],
-        "flood": [f for f in files if "flood" in f.lower()],
+    if not matched:
+        context.log.info(f"[{country}] No '{category}' outputs found in {output_dir}")
+        return
 
-    }
-
-    uploaded = False
-    for dtype, matched in dataset_types.items():
-        if matched:
-            context.log.info(f"[{country}] Found {dtype} outputs: {matched}")
-            upload_to_minio(country, dtype)
-            uploaded = True
-
-    if not uploaded:
-        context.log.info(f"[{country}] No outputs found in {output_dir}")
+    context.log.info(f"[{country}] Found {category} outputs: {matched}")
+    upload_to_minio(country, category)
+    context.log.info(f"[{country}] Uploaded {category} dataset(s) to MinIO successfully.")
 
 @asset(
     deps=["upload_minio_asset"], 
-    partitions_def=multi_partitions,
+    partitions_def=country_partitions,
 )
 def upload_hdx_asset(context):
-    parts = context.partition_key.split("|")
-    country, category = parts[1], parts[0]
+    country = context.partition_key.upper()
 
     hdx_config_path = _asset_config["hdx_asset"].get("config_path", "")
     countries_config = _asset_config["hdx_asset"].get("countries_config", "configs/hdx_countries.yaml")
 
-    context.log.info(f"[{country}] Uploading {category} dataset to HDX")
+    context.log.info(f"[{country}] Uploading dataset to HDX")
 
-    url = upload_to_hdx(country, category, hdx_config_path, countries_config)
+    url = upload_to_hdx(country, hdx_config_path, countries_config)
 
     context.log.info(f"[{country}] Upload to HDX complete: {url}")
     return url
