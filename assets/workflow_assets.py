@@ -6,6 +6,8 @@ import yaml
 import os
 from scripts.fetch_boundaries_hdx import download_shapefiles
 from scripts.fetch_worldpop import aggregate_worldpop_to_csv
+from scripts.fetch_ndvi_gee import process_ndvi_for_admin
+from scripts.fetch_crops_gee import process_crops_for_admin
 from scripts.upload_minio import upload_to_minio
 from scripts.upload_to_hdx import upload_to_hdx
 from scripts.fetch_floods_jrc import process_flood_impact, ALLOWED_RPS
@@ -187,6 +189,76 @@ def facilities_asset(context, boundary_asset: str) -> Output[List[str]]:
             "outputs": summary_paths,
         },
     )
+
+
+@asset(
+    partitions_def=country_partitions,
+    ins={"boundary_asset": AssetIn()},
+)
+def ndvi_asset(context, boundary_asset: str) -> list[str]:
+    """
+    For the given country, find boundary GeoJSON files for the admin levels
+    specified in assets_config.yaml, and calculate NDVI indicators for each.
+    """
+    country_code = context.partition_key.upper()
+    base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
+
+    admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
+    if not admin_levels:
+        raise ValueError("No admin_levels configured in assets_config.yaml")
+
+    output_files = []
+
+    for admin_level in admin_levels:
+        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
+        if not boundary_path.exists():
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
+            )
+            continue
+
+        context.log.info(f"Processing {country_code} {admin_level}")
+
+        output_csv = process_ndvi_for_admin(country_code, admin_level)
+        output_files.append(str(output_csv))
+
+        context.log.info(f"[{country_code} {admin_level}] NDVI calculation complete.")
+
+    return output_files
+
+@asset(
+    deps=["ndvi_asset"],
+    partitions_def=country_partitions,
+    ins={"boundary_asset": AssetIn()},
+)
+def crops_asset(context, boundary_asset: str) -> list[str]:
+    """
+    For the given country, find boundary GeoJSON files for the admin levels
+    specified in assets_config.yaml, and calculate crops indicators.
+    """
+    country_code = context.partition_key.upper()
+    base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
+
+    admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
+    if not admin_levels:
+        raise ValueError("No admin_levels configured in assets_config.yaml")
+
+    output_files = []
+
+    for admin_level in admin_levels:
+        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
+        if not boundary_path.exists():
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
+            )
+            continue
+
+        context.log.info(f"Processing {country_code} {admin_level}")
+        output_csv = process_crops_for_admin(country_code, admin_level)
+        output_files.append(str(output_csv))
+        context.log.info(f"[{country_code} {admin_level}] Crops calculation complete.")
+
+    return output_files
 
 
 @asset(
@@ -454,7 +526,7 @@ def vulnerability_asset(context, demographics_asset: List[str], rural_asset: Lis
     return outputs
 
 @asset(
-    deps=["demographics_asset", "facilities_asset", "coping_asset", "exposure_flood_asset", "vulnerability_asset"],
+    deps=["demographics_asset", "facilities_asset","ndvi_asset", "crops_asset", "coping_asset", "exposure_flood_asset", "vulnerability_asset"],
     partitions_def=multi_partitions,
 )
 def upload_minio_asset(context):
