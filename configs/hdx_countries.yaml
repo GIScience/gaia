@@ -1,0 +1,438 @@
+AFG:
+  region: asia
+  slug: afghanistan
+AGO:
+  region: africa
+  slug: angola
+ALB:
+  region: europe
+  slug: albania
+ARE:
+  region: asia
+  slug: gcc-states
+ARG:
+  region: south-america
+  slug: argentina
+ARM:
+  region: asia
+  slug: armenia
+ATG:
+  region: central-america
+  slug: none
+AZE:
+  region: asia
+  slug: azerbaijan
+BDI:
+  region: africa
+  slug: burundi
+BEN:
+  region: africa
+  slug: benin
+BFA:
+  region: africa
+  slug: burkina-faso
+BGD:
+  region: asia
+  slug: bangladesh
+BGR:
+  region: europe
+  slug: bulgaria
+BHR:
+  region: asia
+  slug: gcc-states
+BHS:
+  region: central-america
+  slug: bahamas
+BLR:
+  region: europe
+  slug: belarus
+BLZ:
+  region: central-america
+  slug: belize
+BOL:
+  region: south-america
+  slug: bolivia
+BRA:
+  region: south-america
+  slug: brazil
+BRB:
+  region: central-america
+  slug: central-america
+BTN:
+  region: asia
+  slug: bhutan
+BWA:
+  region: africa
+  slug: botswana
+CAF:
+  region: africa
+  slug: central-african-republic
+CHL:
+  region: south-america
+  slug: chile
+CHN:
+  region: asia
+  slug: china
+CIV:
+  region: africa
+  slug: ivory-coast
+CMR:
+  region: africa
+  slug: cameroon
+COD:
+  region: africa
+  slug: congo-democratic-republic
+COG:
+  region: africa
+  slug: congo-brazzaville
+COL:
+  region: south-america
+  slug: colombia
+COM:
+  region: africa
+  slug: comores
+CPV:
+  region: africa
+  slug: cape-verde
+CRI:
+  region: central-america
+  slug: costa-rica
+CUB:
+  region: central-america
+  slug: cuba
+DJI:
+  region: africa
+  slug: djibouti
+DMA:
+  region: central-america
+  slug: .nan
+DOM:
+  region: central-america
+  slug: haiti-and-domrep
+DZA:
+  region: africa
+  slug: algeria
+ECU:
+  region: south-america
+  slug: ecuador
+EGY:
+  region: africa
+  slug: egypt
+ERI:
+  region: africa
+  slug: eritrea
+ESH:
+  region: africa
+  slug: morocco
+ETH:
+  region: africa
+  slug: ethiopia
+FJI:
+  region: australia-oceania
+  slug: fiji
+FSM:
+  region: australia-oceania
+  slug: micronesia
+GAB:
+  region: africa
+  slug: gabon
+GEO:
+  region: europe
+  slug: georgia
+GHA:
+  region: africa
+  slug: ghana
+GIN:
+  region: africa
+  slug: guinea
+GMB:
+  region: africa
+  slug: senegal-and-gambia
+GNB:
+  region: africa
+  slug: guinea-bissau
+GNQ:
+  region: africa
+  slug: equatorial-guinea
+GRC:
+  region: europe
+  slug: greece
+GRD:
+  region: north-america
+  slug: greenland
+GTM:
+  region: central-america
+  slug: guatemala
+GUY:
+  region: south-america
+  slug: guyana
+HND:
+  region: central-america
+  slug: honduras
+HTI:
+  region: central-america
+  slug: haiti-and-domrep
+HUN:
+  region: europe
+  slug: hungary
+IDN:
+  region: asia
+  slug: indonesia
+IRN:
+  region: asia
+  slug: iran
+IRQ:
+  region: asia
+  slug: iraq
+JAM:
+  region: central-america
+  slug: jamaica
+KAZ:
+  region: asia
+  slug: kazakhstan
+KEN:
+  region: africa
+  slug: kenya
+KGZ:
+  region: asia
+  slug: kyrgyzstan
+KHM:
+  region: asia
+  slug: cambodia
+KIR:
+  region: australia-oceania
+  slug: kiribati
+KNA:
+  region: central-america
+  slug: none
+KWT:
+  region: asia
+  slug: gcc-states
+LAO:
+  region: asia
+  slug: laos
+LBN:
+  region: asia
+  slug: lebanon
+LBR:
+  region: africa
+  slug: liberia
+LBY:
+  region: africa
+  slug: libya
+LCA:
+  region: central-america
+  slug: none
+LKA:
+  region: asia
+  slug: sri-lanka
+LSO:
+  region: africa
+  slug: lesotho
+MAR:
+  region: africa
+  slug: morocco
+MDA:
+  region: europe
+  slug: moldova
+MDG:
+  region: africa
+  slug: madagascar
+MDV:
+  region: asia
+  slug: maldives
+MEX:
+  region: north-america
+  slug: mexico
+MHL:
+  region: australia-oceania
+  slug: marshall-islands
+MKD:
+  region: europe
+  slug: macedonia
+MLI:
+  region: africa
+  slug: mali
+MMR:
+  region: asia
+  slug: myanmar
+MNG:
+  region: asia
+  slug: mongolia
+MOZ:
+  region: africa
+  slug: mozambique
+MRT:
+  region: africa
+  slug: mauritania
+MUS:
+  region: africa
+  slug: mauritius
+MWI:
+  region: africa
+  slug: malawi
+MYS:
+  region: africa
+  slug: malawi
+NAM:
+  region: africa
+  slug: namibia
+NER:
+  region: africa
+  slug: niger
+NGA:
+  region: africa
+  slug: nigeria
+NIC:
+  region: central-america
+  slug: nicaragua
+NPL:
+  region: asia
+  slug: nepal
+OMN:
+  region: asia
+  slug: gcc-states
+PAK:
+  region: asia
+  slug: pakistan
+PAN:
+  region: central-america
+  slug: panama
+PER:
+  region: south-america
+  slug: peru
+PHL:
+  region: asia
+  slug: philippines
+PNG:
+  region: asia
+  slug: indonesia
+POL:
+  region: europe
+  slug: poland
+PRK:
+  region: asia
+  slug: north-korea
+PRY:
+  region: south-america
+  slug: paraguay
+QAT:
+  region: asia
+  slug: gcc-states
+ROU:
+  region: europe
+  slug: romania
+RUS:
+  region: russia
+  slug: none
+RWA:
+  region: africa
+  slug: rwanda
+SAU:
+  region: asia
+  slug: gcc-states
+SDN:
+  region: africa
+  slug: sudan
+SEN:
+  region: africa
+  slug: senegal-and-gambia
+SLB:
+  region: australia-oceania
+  slug: solomon-islands
+SLE:
+  region: africa
+  slug: sierra-leone
+SLV:
+  region: central-america
+  slug: el-salvador
+SOM:
+  region: africa
+  slug: somalia
+SSD:
+  region: africa
+  slug: south-sudan
+STP:
+  region: africa
+  slug: sao-tome-and-principe
+SUR:
+  region: south-america
+  slug: suriname
+SVK:
+  region: europe
+  slug: slovakia
+SWZ:
+  region: africa
+  slug: eswatini
+SYC:
+  region: africa
+  slug: seychelles
+SYR:
+  region: asia
+  slug: syria
+TCD:
+  region: africa
+  slug: chad
+TGO:
+  region: africa
+  slug: togo
+THA:
+  region: asia
+  slug: thailand
+TJK:
+  region: asia
+  slug: tajikistan
+TLS:
+  region: asia
+  slug: indonesia
+TON:
+  region: australia-oceania
+  slug: tonga
+TTO:
+  region: central-america
+  slug: none
+TUN:
+  region: africa
+  slug: tunisia
+TUR:
+  region: europe
+  slug: turkey
+TZA:
+  region: africa
+  slug: tanzania
+UGA:
+  region: africa
+  slug: uganda
+UKR:
+  region: europe
+  slug: ukraine
+URY:
+  region: south-america
+  slug: uruguay
+UZB:
+  region: asia
+  slug: uzbekistan
+VCT:
+  region: central-america
+  slug: none
+VEN:
+  region: south-america
+  slug: venezuela
+VNM:
+  region: asia
+  slug: vietnam
+VUT:
+  region: australia-oceania
+  slug: vanuatu
+YEM:
+  region: asia
+  slug: yemen
+ZAF:
+  region: africa
+  slug: south-africa
+ZMB:
+  region: africa
+  slug: zambia
+ZWE:
+  region: africa
+  slug: zimbabwe

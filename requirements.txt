@@ -1,0 +1,19 @@
+dagster==1.10.18                       # core framework
+dagster-webserver==1.10.18             # the newer name for dagit’s webserver
+pandas==2.2.3                      # tabular data manipulation
+requests==2.32.3                   # download raster files from WorldPop
+geopandas>=1.0.0                   # read and process vector data (shapefiles, GeoJSON)
+rasterio==1.4.3                    # raster I/O and metadata
+rioxarray>=0.15.0                  # raster stacking and CRS support
+xarray>=2023.1.0                   # handle multi-layer raster data
+numpy>=1.25.0                      # numerical operations for raster math
+shapely>=2.0.0                     # geometry operations used by geopandas
+fiona>=1.9.0                       # read/write vector file formats (e.g., shapefiles)
+pyproj>=3.6.0                      # coordinate reference system handling
+exactextract==0.2.2                # fast zonal statistics (raster ↔ vector overlay)
+minio==7.2.15                      # interact with minio
+ohsome==0.4.0                      # ohsome api
+earthengine-api                    # google earth engine api
+geemap
+rasterstats
+overpass

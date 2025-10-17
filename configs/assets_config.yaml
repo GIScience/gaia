@@ -1,0 +1,20 @@
+minio_asset:
+  config_path: configs/minio_config.yaml # make sure you have keys on bucket, access_key, secret_key, dest_prefix
+
+hdx_asset:
+  config_path: configs/hdx_config.yaml
+
+facilities_asset:
+  api: ohsome-api # can be ohsome-api, overpass or ohsome-paquet
+
+setup:
+  admin_levels: ['ADM2']
+  rps: ['10', '50', '100', '500']
+  flood_threshold: 0.3   # meters
+
+ndvi_asset:
+  year: [2022] # year to use for the ndvi calculation
+
+crops_asset:
+  years: [2023, 2024] # years to compare for change detection
+
