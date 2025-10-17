@@ -159,7 +159,7 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     """
     country_code = country_code.upper()
     output_dir = Path(output_dir)
-    out_csv = output_dir / f"{country_code}_flooded_by_{admin_level}.csv"
+    out_csv = output_dir / f"{country_code}_{admin_level}_flood_exposure.csv"
     temp_dir = Path("data") / country_code / "Temporary"
 
     # Load existing CSV if present, to append missing RPs

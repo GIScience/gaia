@@ -31,7 +31,7 @@ def process_ndvi_for_admin(country_code: str, admin_level: str, config_path="con
 
     # Ensure Output folder exists
     os.makedirs(f"data/{country_code}/Output", exist_ok=True)
-    output_csv = f"data/{country_code}/Output/{country_code}_ndvi_by_{admin_level}.csv"
+    output_csv = f"data/{country_code}/Output/{country_code}_{admin_level}_ndvi.csv"
 
     if os.path.exists(output_csv):
         os.remove(output_csv)

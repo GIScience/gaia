@@ -6,15 +6,15 @@ from minio import Minio
 from minio.error import S3Error
 
 
-def load_minio_config(config_file: str, dataset_type: str):
-    """Load MinIO config for the given dataset_type from YAML."""
+def load_minio_config(config_file: str):
+    """Load a single global MinIO config from YAML."""
     with open(config_file, "r") as f:
         cfg = yaml.safe_load(f)
 
-    if dataset_type not in cfg["minio_asset"]:
-        raise ValueError(f"Dataset type '{dataset_type}' not found in config.")
+    if "minio_asset" not in cfg:
+        raise ValueError("Missing 'minio_asset' section in config file.")
 
-    return cfg["minio_asset"][dataset_type]
+    return cfg["minio_asset"]
 
 
 def upload_folder(client: Minio, bucket: str, in_dir: str, dest_prefix: str, file_filter=None):
@@ -28,11 +28,12 @@ def upload_folder(client: Minio, bucket: str, in_dir: str, dest_prefix: str, fil
 
             local_path = os.path.join(root, filename)
             rel_path = os.path.relpath(local_path, in_dir)
+            # Keep subdirectory structure but put everything under dest_prefix/country
             object_path = os.path.join(dest_prefix, rel_path).replace("\\", "/")
 
             try:
                 client.fput_object(bucket_name=bucket, object_name=object_path, file_path=local_path)
-                print(f"Uploaded {local_path} to {bucket}/{object_path}")
+                print(f"Uploaded {local_path} → {bucket}/{object_path}")
             except S3Error as err:
                 print(f"Error uploading {local_path}: {err}")
 
@@ -40,7 +41,7 @@ def upload_folder(client: Minio, bucket: str, in_dir: str, dest_prefix: str, fil
 def upload_to_minio(country: str, dataset_type: str, config_file="configs/minio_config.yaml"):
     """Main entrypoint: uploads all files for dataset_type of given country."""
     dataset_type = dataset_type.lower()
-    config = load_minio_config(config_file, dataset_type)
+    config = load_minio_config(config_file)
 
     in_dir = os.path.join("data", country, "Output")
     if not os.path.isdir(in_dir):
@@ -60,15 +61,17 @@ def upload_to_minio(country: str, dataset_type: str, config_file="configs/minio_
     except S3Error as err:
         raise RuntimeError(f"Error checking bucket {config['bucket']}: {err}")
 
+    # heigit-hdx-public/risk_assessment_inputs/rwa/<filename>
+    dest_prefix = os.path.join(config.get("dest_prefix", ""), country.lower())
+    dest_prefix = dest_prefix.replace("\\", "/")
+
     upload_folder(
         client=client,
         bucket=config["bucket"],
         in_dir=in_dir,
-        dest_prefix=f"{config.get('dest_prefix')}/{country.lower()}",
-        file_filter=dataset_type,
+        dest_prefix=dest_prefix,
+        file_filter=dataset_type,  # still filter filenames by dataset_type
     )
-
-
 
 
 def parse_args():
@@ -78,7 +81,7 @@ def parse_args():
         "dataset_type",
         type=str,
         choices=["demographics", "facilities", "ndvi", "crops", "flood"],
-        help="Type of dataset to upload (matches config section)",
+        help="Type of dataset to upload (used for filtering filenames)",
     )
     parser.add_argument(
         "--config_file",

@@ -62,7 +62,7 @@ def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_l
     temp_dir = output_dir / "Temporary"
     out_dir = output_dir / "Output"
     expected_files = [
-        out_dir / f"{country_code}_facilities_by_{admin_level}.csv"
+        out_dir / f"{country_code}_{admin_level}_facilities.csv"
     ] + [
         temp_dir / f"{country_code}_{category}_raw.geojson"
         for category in OVERPASS_FILTERS.keys()
@@ -132,7 +132,7 @@ def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_l
 
     counts = counts.fillna(0).astype({col: int for col in counts.columns if col != id_col})
 
-    summary_path = out_dir / f"{country_code}_facilities_by_{admin_level}.csv"
+    summary_path = out_dir / f"{country_code}_{admin_level}_facilities.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     counts.to_csv(summary_path, index=False)
     context_log.info(f"Wrote summary to {summary_path}")
@@ -148,7 +148,7 @@ def fetch_ohsome(context_log, boundary_file, output_dir, country_code, admin_lev
     temp_dir = output_dir / "Temporary"
     out_dir = output_dir / "Output"
     expected_files = [
-        out_dir / f"{country_code}_facilities_by_{admin_level}.csv"
+        out_dir / f"{country_code}_{admin_level}_facilities.csv"
     ] + [
         temp_dir / f"{country_code}_{category}_raw.geojson"
         for category in OHSOME_FILTERS.keys()
@@ -215,7 +215,7 @@ def fetch_ohsome(context_log, boundary_file, output_dir, country_code, admin_lev
 
     counts = counts.fillna(0).astype({col: int for col in counts.columns if col != id_col})
 
-    summary_path = out_dir / f"{country_code}_facilities_by_{admin_level}.csv"
+    summary_path = out_dir / f"{country_code}_{admin_level}_facilities.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     counts.to_csv(summary_path, index=False)
     context_log.info(f"Wrote summary to {summary_path}")

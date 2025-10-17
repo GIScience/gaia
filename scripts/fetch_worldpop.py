@@ -190,7 +190,7 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
     # 5) Save CSV
     out_dir = os.path.join("data", country_code, "Output")
     os.makedirs(out_dir, exist_ok=True)
-    csv_path = os.path.join(out_dir, f"{country_code}_demographics_by_{admin_level}.csv")
+    csv_path = os.path.join(out_dir, f"{country_code}_{admin_level}_demographics.csv")
     results.to_csv(csv_path, index=False)
 
     return csv_path

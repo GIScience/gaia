@@ -71,16 +71,11 @@ def compute_access_population(country_code, admin_level, gdf_admin, work_dir, ou
     Compute how much vulnerable population lives within accessibility isochrones,
     grouped by chosen administrative level.
     """
-    from pathlib import Path
-    import geopandas as gpd
-    import pandas as pd
-    import rioxarray
-    from rasterstats import zonal_stats
 
     country_code = country_code.upper()
     work_dir = Path(work_dir)
     output_dir = Path(output_dir)
-    out_csv = output_dir / f"{country_code}_access_by_{admin_level}.csv"
+    out_csv = output_dir / f"{country_code}_{admin_level}_access.csv"
 
     if out_csv.exists():
         context.info(f"CSV already exists, skipping: {out_csv}")

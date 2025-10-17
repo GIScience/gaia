@@ -85,7 +85,7 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
     temp_dir = Path(f"{work_dir}/data/{country_code}/Temporary")
     output_dir = Path(output_dir)
     reclass_tif = work_dir / "smod_reclass.tif"
-    out_csv = output_dir / f"{country_code}_rural_population_by_{admin_level}.csv"
+    out_csv = output_dir / f"{country_code}_{admin_level}_rural_population.csv"
 
     # --- skip if CSV exists ---
     if out_csv.exists():
