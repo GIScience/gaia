@@ -147,36 +147,6 @@ Combines **Demographics** and **Rural Population** indicators to represent socio
 
 ---
 
-#### **Crop Coverage and Change (`RWA_ADM2_crops`)**
-Shows the extent and change of agricultural land between 2023 and 2024. It is derived from the Google Dynamic World land cover dataset (Version 1),
-which provides 10 m near-real-time land classification based on Sentinel-2 imagery.
-
-For each administrative area, the share of pixels classified as “cropland” (class 4) is calculated for both years.
-The resulting percentages are compared to estimate absolute and relative changes in cropland area.
-
-- **ADM2_PCODE** – Administrative division code (ADM2)
-- **crops_2023_pct**, **crops_2024_pct** – Percentage of cropland in 2023 and 2024
-- **crops_diff_km2** – Change in cropland area (km²)
-- **crops_diff_pctpts** – Change in cropland coverage (percentage points)
-- **crops_change_rel_pct** – Relative change in cropland area (%)
-
-Data Source: [Dynamic World](https://dynamicworld.app/)
-
----
-
-#### **Vegetation Index (`RWA_ADM2_ndvi`)**
-The Normalized Difference Vegetation Index (NDVI) summarizes vegetation health and density using a satellite-derived measure of vegetation greenness.
-NDVI values range from -1 to +1, where higher values indicate denser and healthier vegetation, while lower values reflect sparse or stressed vegetation, bare soil, or urban surfaces.
-
-- **ADM2_PCODE** – Administrative division code (ADM2)
-- **NDVI_mean**, **NDVI_median** – Mean and median NDVI
-- **NDVI_p25**, **NDVI_p75** – 25th and 75th percentile NDVI
-- **NDVI_high_sqkm**, **NDVI_medium_sqkm**, **NDVI_low_sqkm** – Area (km²) by vegetation density
-
-Data Source: [Landsat Collection 2](https://www.usgs.gov/landsat-missions/landsat-collection-2)
-
----
-
 #### **Flood Exposure (`RWA_ADM2_flood_exposure`)**
 Shows population and facility exposure to flooding at 30 cm depth for multiple return periods (10-, 50-, 100-, and 500-year). Each prefix (RP10, RP50, RP100, RP500) indicates the return period scenario.  
 
