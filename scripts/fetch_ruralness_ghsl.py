@@ -81,7 +81,7 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
     Adds percentage columns (_rural_perc) for each indicator.
     """
     country_code = country_code.upper()
-    work_dir = Path(f"{work_dir}/Temporary")
+    work_dir = Path(f"{work_dir}/downloads")
     temp_dir = Path(f"{work_dir}/data/{country_code}/Temporary")
     output_dir = Path(output_dir)
     reclass_tif = work_dir / "smod_reclass.tif"
