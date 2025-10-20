@@ -40,7 +40,7 @@ def create_country_dataset(country_code: str, country_name: str, links, config):
     dataset["name"] = dataset_hdx_country
     dataset["title"] = dataset_name
     dataset["owner_org"] = config["hdx"]["owner_org"]
-    dataset["groups"] = [{"name": config["hdx"]["owner_org"]}]
+    #dataset["groups"] = [{"name": config["hdx"]["owner_org"]}]
     dataset["private"] = config["hdx"].get("private", False)
     dataset.set_expected_update_frequency(config["hdx"].get("data_update_frequency", "Every six months"))
     dataset["license_id"] = "cc-by-sa"

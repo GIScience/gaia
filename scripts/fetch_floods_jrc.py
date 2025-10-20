@@ -291,6 +291,8 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
 
             context.info(f"Processed flooded facilities for {category} >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
 
+        existing_cols = set(final_df.columns)
+        rp_df = rp_df[[c for c in rp_df.columns if c not in existing_cols or c == f"{admin_level}_PCODE"]]
         final_df = final_df.merge(rp_df, on=f"{admin_level}_PCODE", how="left")
         context.info(f"Processed RP{rp}")
 

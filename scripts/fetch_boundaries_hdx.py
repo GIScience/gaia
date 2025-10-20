@@ -92,7 +92,7 @@ def download_shapefiles(country_code):
     zip_urls = find_shapefile_resources(resources)
 
     if not zip_urls:
-        print("❌ No shapefile ZIP found.")
+        print("No shapefile ZIP found.")
         return
 
     for i, url in enumerate(zip_urls, start=1):
@@ -110,10 +110,6 @@ def download_shapefiles(country_code):
         except Exception as e:
             print(f"Failed to download {url}: {e}")
 
-    # Cleanup
-    if os.path.exists(downloads_dir):
-        shutil.rmtree(downloads_dir)
-        print(f"🧹 Deleted download folder: {downloads_dir}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
