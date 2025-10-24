@@ -126,10 +126,20 @@ def process_ndvi_for_admin(country_code: str, admin_level: str, config_path="con
             # Round only these columns
             df_chunk[round_cols] = df_chunk[round_cols].round(2)
 
+            # Add ADM_PCODE duplicate for schema consistency
+            admin_col = f"{admin_level.upper()}_PCODE"
+            if "ADM_PCODE" not in df_chunk.columns and admin_col in df_chunk.columns:
+                df_chunk["ADM_PCODE"] = df_chunk[admin_col]
+
+            # Reorder columns so ADM_PCODE follows the main admin column
+            cols = [admin_col, "ADM_PCODE"] + [c for c in df_chunk.columns if c not in [admin_col, "ADM_PCODE"]]
+            df_chunk = df_chunk[cols]
+
+            # Write to CSV
             if start_idx == 0 and not os.path.exists(output_csv):
                 df_chunk.to_csv(output_csv, index=False)
             else:
-                df_chunk.to_csv(output_csv, mode='a', header=False, index=False)
+                df_chunk.to_csv(output_csv, mode='a', header=False, index=False)                                                        
 
             os.remove(temp_csv)
 

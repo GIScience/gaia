@@ -90,8 +90,13 @@ def compute_access_population(country_code, admin_level, gdf_admin, work_dir, ou
     vuln_tmp = work_dir / f"{country_code}_vulnerable_pop.tif"
     vuln_pop.rio.to_raster(vuln_tmp)
 
-    results = pd.DataFrame({f"{admin_level}_PCODE": gdf_admin[f"{admin_level}_PCODE"]})
-
+    # Initialize results table with admin PCODE
+    admin_col = f"{admin_level}_PCODE"
+    results = pd.DataFrame({
+        admin_col: gdf_admin[admin_col],
+        "ADM_PCODE": gdf_admin[admin_col],  # duplicate for consistency
+    })
+    
     for category, spec in CATEGORY_SPECS.items():
         gpkg_path = download_access_gpkg(country_code, category, work_dir, context)
 

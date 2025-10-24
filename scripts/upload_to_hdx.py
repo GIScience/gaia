@@ -3,10 +3,8 @@ import yaml
 import argparse
 import sys
 from hdx.api.configuration import Configuration
-from hdx.data.dataset import Dataset
-from hdx.data.hdxobject import HDXError
+from hdx.data.dataset import Dataset, HDXError
 from datetime import datetime, timezone
-
 
 
 def generate_links(country_code: str, local_folder: str):
@@ -39,15 +37,15 @@ def create_country_dataset(country_code: str, country_name: str, links, config):
     dataset = Dataset()
     dataset["name"] = dataset_hdx_country
     dataset["title"] = dataset_name
+    # Set/update metadata (works for both new or existing datasets)
     dataset["owner_org"] = config["hdx"]["owner_org"]
-    #dataset["groups"] = [{"name": config["hdx"]["owner_org"]}]
     dataset["private"] = config["hdx"].get("private", False)
     dataset.set_expected_update_frequency(config["hdx"].get("data_update_frequency", "Every six months"))
     dataset["license_id"] = "cc-by-sa"
     dataset["dataset_source"] = "HeiGIT"
     dataset["maintainer"] = config["hdx"].get("maintainer", "Valentin Boehmer")
     dataset["maintainer_email"] = config["hdx"].get("maintainer_email", "valentin.boehmer@heigit.org")
-
+    
     dataset["methodology"] = (
         "This dataset aggregates multiple risk assessment indicators for the country, "
         "including demographics, facilities, environmental, and hazard data."
@@ -192,6 +190,7 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     dataset["dataset_date"] = f"[{today} TO {today}]"
 
+    # Add or update resources
     for fname, url in links:
         resource = {
             "name": fname,
@@ -201,12 +200,14 @@ We are happy to hear about your use-cases — contact us at [communications@heig
         }
         dataset.add_update_resource(resource)
 
+    # Create new dataset if it didn't exist, or update existing
     dataset.create_in_hdx()
     return dataset.get_hdx_url()
 
 
 def upload_to_hdx(country: str, config_file="configs/hdx_config.yaml", countries_config="configs/hdx_countries.yaml"):
     """Main entrypoint: upload all risk assessment files for a country to HDX."""
+
     # Load config
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
