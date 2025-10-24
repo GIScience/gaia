@@ -178,15 +178,25 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
     results = pd.DataFrame()
     results[f"{admin_level}_PCODE"] = gdf[f"{admin_level}_PCODE"]
 
+    # Add ADM_PCODE column duplicating the administrative code
+    results["ADM_PCODE"] = gdf[f"{admin_level}_PCODE"]
+
     # 4) Compute zonal sums
     for ind, path in tif_map.items():
         stats = zonal_stats(gdf, path, stats="sum", nodata=0)
         results[ind] = [s["sum"] for s in stats]
 
-    # Round numeric columns and handle NaN or inf safely
-    numeric_cols = results.columns.drop(f"{admin_level}_PCODE")
+    # ensure ADM_PCODE preserved and not converted to numeric
+    admin_col = f"{admin_level}_PCODE"
+    # ensure ADM_PCODE exists and keep original values
+    if "ADM_PCODE" not in results.columns and admin_col in results.columns:
+        results["ADM_PCODE"] = gdf[admin_col]
 
-    # Replace non-finite values (NaN, inf) with 0 before conversion
+    # Round numeric columns and handle NaN or inf safely
+    # Exclude both the original admin column and the ADM_PCODE duplicate from numeric processing
+    numeric_cols = [c for c in results.columns if c not in [admin_col, "ADM_PCODE"]]
+
+    # Replace non-finite values (NaN, inf) with 0 before conversion for numeric columns
     results[numeric_cols] = results[numeric_cols].apply(
         pd.to_numeric, errors="coerce"
     ).fillna(0).replace([float("inf"), float("-inf")], 0)

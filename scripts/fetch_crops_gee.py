@@ -38,8 +38,10 @@ def process_crops_for_admin(country_code: str, admin_level: str, config_path="co
     if os.path.exists(output_csv):
         os.remove(output_csv)
 
+    admin_col = f"{admin_level.upper()}_PCODE"
     col_order = [
-        f"{admin_level.upper()}_PCODE",
+        admin_col,
+        "ADM_PCODE",  # duplicate column for consistent schema
         f"crops_{year_prev}_pct",
         f"crops_{year_curr}_pct",
         "crops_diff_km2",
@@ -115,7 +117,12 @@ def process_crops_for_admin(country_code: str, admin_level: str, config_path="co
 
             df_chunk = pd.read_csv(temp_csv)
             df_chunk = df_chunk[[c for c in col_order if c in df_chunk.columns]]
-            df_chunk[col_order[1:]] = df_chunk[col_order[1:]].round(2)
+
+            # Add ADM_PCODE duplicate
+            if "ADM_PCODE" not in df_chunk.columns and admin_col in df_chunk.columns:
+                df_chunk["ADM_PCODE"] = df_chunk[admin_col]
+
+            df_chunk[col_order[2:]] = df_chunk[col_order[2:]].round(2)
 
             if start_idx == 0 and not os.path.exists(output_csv):
                 df_chunk.to_csv(output_csv, index=False)

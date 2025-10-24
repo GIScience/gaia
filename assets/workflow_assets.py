@@ -387,6 +387,15 @@ def coping_asset(context, access_asset: List[str], facilities_asset: List[str]) 
 
             merged = pd.merge(df_access, df_facilities, on=id_col, how="left")
 
+            # --- keep only one ADM_PCODE column ---
+            adm_cols = [c for c in merged.columns if c.startswith("ADM") and c.endswith("_PCODE")]
+            if "ADM_PCODE_x" in merged.columns or "ADM_PCODE_y" in merged.columns:
+                merged["ADM_PCODE"] = merged["ADM_PCODE_x"].combine_first(merged["ADM_PCODE_y"])
+                merged.drop(columns=[c for c in ["ADM_PCODE_x", "ADM_PCODE_y"] if c in merged.columns], inplace=True)
+            elif "ADM_PCODE" in merged.columns and adm_cols.count("ADM_PCODE") > 1:
+                # In case of duplicate ADM_PCODE columns from merge quirks
+                merged = merged.loc[:, ~merged.columns.duplicated()]
+
             admin_level = id_col.split("_")[0]  # e.g., ADM2
             output_dir = Path("data") / country_code / "Output"
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -403,7 +412,6 @@ def coping_asset(context, access_asset: List[str], facilities_asset: List[str]) 
     if not outputs:
         context.log.warning(f"No coping outputs created for {country_code}")
     return outputs
-
 
 @asset(
     deps=["demographics_asset", "rural_asset"],
@@ -435,6 +443,15 @@ def vulnerability_asset(context, demographics_asset: List[str], rural_asset: Lis
             id_col = id_col[0]
 
             merged = pd.merge(df_demo, df_rural, on=id_col, how="left")
+
+            # keep only one ADM_PCODE column
+            adm_cols = [c for c in merged.columns if c.startswith("ADM") and c.endswith("_PCODE")]
+            if "ADM_PCODE_x" in merged.columns or "ADM_PCODE_y" in merged.columns:
+                merged["ADM_PCODE"] = merged["ADM_PCODE_x"].combine_first(merged["ADM_PCODE_y"])
+                merged.drop(columns=[c for c in ["ADM_PCODE_x", "ADM_PCODE_y"] if c in merged.columns], inplace=True)
+            elif "ADM_PCODE" in merged.columns and adm_cols.count("ADM_PCODE") > 1:
+                # In case of duplicate ADM_PCODE columns from merge quirks
+                merged = merged.loc[:, ~merged.columns.duplicated()]
 
             admin_level = id_col.split("_")[0]  # e.g., ADM2
             output_dir = Path("data") / country_code / "Output"

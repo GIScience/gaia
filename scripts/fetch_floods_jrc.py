@@ -299,6 +299,17 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     numeric_cols = final_df.select_dtypes(include=["float", "int"]).columns
     final_df[numeric_cols] = final_df[numeric_cols].fillna(0).round(0).astype(int)
     output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Add ADM_PCODE duplicate for schema consistency
+    admin_col = f"{admin_level}_PCODE"
+    if "ADM_PCODE" not in final_df.columns and admin_col in final_df.columns:
+        final_df["ADM_PCODE"] = final_df[admin_col]
+
+    # Reorder columns so ADM_PCODE follows the main admin column
+    cols = [admin_col, "ADM_PCODE"] + [c for c in final_df.columns if c not in [admin_col, "ADM_PCODE"]]
+    final_df = final_df[cols]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(out_csv, index=False)
     context.info(f"Flooded population & facilities CSV written to {out_csv}")
 

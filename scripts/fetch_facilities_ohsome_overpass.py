@@ -134,6 +134,15 @@ def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_l
 
     summary_path = out_dir / f"{country_code}_{admin_level}_facilities.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Add ADM_PCODE duplicate for consistency
+    if "ADM_PCODE" not in counts.columns and id_col in counts.columns:
+        counts["ADM_PCODE"] = counts[id_col]
+
+    # Reorder columns so ADM_PCODE comes right after the main ID
+    cols = [id_col, "ADM_PCODE"] + [c for c in counts.columns if c not in [id_col, "ADM_PCODE"]]
+    counts = counts[cols]
+
     counts.to_csv(summary_path, index=False)
     context_log.info(f"Wrote summary to {summary_path}")
 
@@ -217,6 +226,15 @@ def fetch_ohsome(context_log, boundary_file, output_dir, country_code, admin_lev
 
     summary_path = out_dir / f"{country_code}_{admin_level}_facilities.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Add ADM_PCODE duplicate for consistency
+    if "ADM_PCODE" not in counts.columns and id_col in counts.columns:
+        counts["ADM_PCODE"] = counts[id_col]
+
+    # Reorder columns so ADM_PCODE comes right after the main ID
+    cols = [id_col, "ADM_PCODE"] + [c for c in counts.columns if c not in [id_col, "ADM_PCODE"]]
+    counts = counts[cols]
+
     counts.to_csv(summary_path, index=False)
     context_log.info(f"Wrote summary to {summary_path}")
 

@@ -113,7 +113,13 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
         # --- load SMOD raster ---
         smod = rioxarray.open_rasterio(reclass_tif, masked=True).squeeze()
 
-        rural_df = pd.DataFrame({f"{admin_level}_PCODE": gdf[f"{admin_level}_PCODE"]})
+        # Create initial DataFrame with admin codes
+        rural_df = pd.DataFrame({
+            f"{admin_level}_PCODE": gdf[f"{admin_level}_PCODE"]
+        })
+
+        # Add ADM_PCODE column duplicating the administrative code
+        rural_df["ADM_PCODE"] = gdf[f"{admin_level}_PCODE"]
 
         # Store total population sums
         total_pop_counts = {}
