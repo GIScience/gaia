@@ -4,7 +4,7 @@ import argparse
 import sys
 from hdx.api.configuration import Configuration
 from hdx.data.dataset import Dataset, HDXError
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 def generate_links(country_code: str, local_folder: str):
@@ -185,9 +185,12 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     except HDXError as e:
         print(f"Warning: {e}")
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    dataset["dataset_date"] = f"[{today} TO {today}]"
+    # Set dataset time period: from today to six months from now
+    start_date = datetime.now(timezone.utc)
+    end_date = start_date + timedelta(days=182)  # approx. 6 months
 
+    dataset["dataset_date"] = f"[{start_date.strftime('%Y-%m-%dT%H:%M:%S')} TO {end_date.strftime('%Y-%m-%dT%H:%M:%S')}]"
+    
     # Add or update resources
     for fname, url in links:
         resource = {
