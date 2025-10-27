@@ -72,8 +72,6 @@ The dataset contains multiple thematic layers:
 - **Demographics (`RWA_ADM2_demographics`)** – Age and gender distribution.
 - **Rural Population (`RWA_ADM2_rural_population`)** – Demographic indicators limited to rural populations.
 - **Vulnerability (`RWA_ADM2_vulnerability`)** – Combined indicators from Demographics and Rural Population.
-- **Crop Coverage and Change (`RWA_ADM2_crops`)** – Agricultural land extent and changes.
-- **Vegetation Index (`RWA_ADM2_ndvi`)** – NDVI-based vegetation conditions.
 - **Flood Exposure (`RWA_ADM2_flood_exposure`)** – Exposure of populations and facilities to flood hazards.
 
 
