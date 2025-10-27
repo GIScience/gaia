@@ -2,12 +2,8 @@ import os
 import sys
 import yaml
 import argparse
-from datetime import datetime
-import pandas as pd
-import tempfile
 from minio import Minio
 from minio.error import S3Error
-
 
 
 def load_minio_config(config_file: str):
@@ -20,6 +16,7 @@ def load_minio_config(config_file: str):
 
     return cfg["minio_asset"]
 
+
 def upload_folder(client: Minio, bucket: str, in_dir: str, dest_prefix: str, file_filter=None):
     """Walk through all files in in_dir and upload to MinIO under dest_prefix."""
     for root, dirs, files in os.walk(in_dir):
@@ -31,34 +28,14 @@ def upload_folder(client: Minio, bucket: str, in_dir: str, dest_prefix: str, fil
 
             local_path = os.path.join(root, filename)
             rel_path = os.path.relpath(local_path, in_dir)
+            # Keep subdirectory structure but put everything under dest_prefix/country
             object_path = os.path.join(dest_prefix, rel_path).replace("\\", "/")
 
-            # Handle tabular data (CSV or TSV)
-            ext = os.path.splitext(filename)[1].lower()
-            if ext in [".csv", ".tsv"]:
-                sep = "," if ext == ".csv" else "\t"
-                try:
-                    df = pd.read_csv(local_path, sep=sep)
-                    df["timestamp"] = datetime.utcnow().isoformat()
-
-                    # Save to temporary file before upload
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmpf:
-                        df.to_csv(tmpf.name, index=False, sep=sep)
-                        temp_path = tmpf.name
-
-                    client.fput_object(bucket_name=bucket, object_name=object_path, file_path=temp_path)
-                    print(f"Uploaded (with timestamp) {local_path} → {bucket}/{object_path}")
-                    os.remove(temp_path)
-
-                except Exception as e:
-                    print(f"Error processing {local_path}: {e}")
-            else:
-                # Non-tabular files (upload as-is)
-                try:
-                    client.fput_object(bucket_name=bucket, object_name=object_path, file_path=local_path)
-                    print(f"Uploaded {local_path} → {bucket}/{object_path}")
-                except S3Error as err:
-                    print(f"Error uploading {local_path}: {err}")
+            try:
+                client.fput_object(bucket_name=bucket, object_name=object_path, file_path=local_path)
+                print(f"Uploaded {local_path} → {bucket}/{object_path}")
+            except S3Error as err:
+                print(f"Error uploading {local_path}: {err}")
 
 
 def upload_to_minio(country: str, dataset_type: str, config_file="configs/minio_config.yaml"):
