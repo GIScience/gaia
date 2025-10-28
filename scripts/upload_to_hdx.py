@@ -37,12 +37,13 @@ def create_country_dataset(country_code: str, country_name: str, links, config):
     dataset = Dataset()
     dataset["name"] = dataset_hdx_country
     dataset["title"] = dataset_name
+    dataset["dataset_type"] = "dataset_series"
     # Set/update metadata (works for both new or existing datasets)
     dataset["owner_org"] = config["hdx"]["owner_org"]
     dataset["private"] = config["hdx"].get("private", False)
     dataset.set_expected_update_frequency(config["hdx"].get("data_update_frequency", "Every six months"))
     dataset["license_id"] = "cc-by-sa"
-    dataset["dataset_source"] = "HeiGIT"
+    dataset["dataset_source"] = "Multiple sources"
     dataset["maintainer"] = config["hdx"].get("maintainer", "Valentin Boehmer")
     dataset["maintainer_email"] = config["hdx"].get("maintainer_email", "valentin.boehmer@heigit.org")
     
@@ -52,6 +53,7 @@ def create_country_dataset(country_code: str, country_name: str, links, config):
         "Data sources include WorldPop, OpenStreetMap, HDX COD-AB, and other publicly available datasets. "
         "All indicators were processed and harmonized by HeiGIT's GAIA Pipeline."
     )
+    dataset["data_series"] = "Heidelberg Institute for Geoinformation Technology - Risk Assessment Indicators"
 
     dataset["notes"] = f"""
 This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level 2**.
@@ -185,9 +187,9 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     except HDXError as e:
         print(f"Warning: {e}")
 
-    # Set dataset time period: from today to six months from now
-    start_date = datetime.now(timezone.utc)
-    end_date = start_date + timedelta(days=182)  # approx. 6 months
+    # Set dataset time period: from six months ago to today
+    end_date = datetime.now(timezone.utc)
+    start_date = end_date - timedelta(days=182)  # approx. 6 months
 
     dataset["dataset_date"] = f"[{start_date.strftime('%Y-%m-%dT%H:%M:%S')} TO {end_date.strftime('%Y-%m-%dT%H:%M:%S')}]"
     
@@ -223,7 +225,7 @@ def upload_to_hdx(country: str, config_file="configs/hdx_config.yaml", countries
     # Setup HDX API
     Configuration.create(
         hdx_site=config["hdx"]["site"],
-        user_agent="HDXUploadScript",
+        user_agent="HDXDataSeriesScript",
         hdx_key=config["hdx"]["api_key"],
     )
 
