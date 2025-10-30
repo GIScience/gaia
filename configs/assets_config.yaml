@@ -5,7 +5,7 @@ hdx_asset:
   config_path: configs/hdx_config.yaml
 
 facilities_asset:
-  api: ohsome-api # can be ohsome-api, overpass or ohsome-paquet
+  api: overpass # can be ohsome-api, overpass or ohsome-paquet
 
 setup:
   admin_levels: ['ADM2']
