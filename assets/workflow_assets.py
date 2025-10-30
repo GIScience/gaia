@@ -12,6 +12,7 @@ from scripts.fetch_floods_jrc import process_flood_impact, ALLOWED_RPS
 from scripts.fetch_facilities_ohsome_overpass import fetch_ohsome, fetch_overpass
 from scripts.fetch_ruralness_ghsl import compute_rural_population
 from scripts.fetch_access_minio import compute_access_population
+from scripts.fetch_cyclones_ncei import calculate_cyclone_exposure
 from dagster import Output
 from typing import List
 
@@ -244,6 +245,64 @@ def exposure_flood_asset(context, boundary_asset: str) -> list[str]:
 
     return outputs
 
+
+@asset(
+    deps=["demographics_asset", "facilities_asset"],
+    partitions_def=country_partitions,
+    ins={"boundary_asset": AssetIn()},
+)
+def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
+    """
+    Generate cyclone exposure CSVs using IBTrACS data and WorldPop/facilities data.
+    For each configured admin level, computes exposed populations and facilities.
+    """
+    country_code = context.partition_key.upper()
+    base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
+
+    admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
+    if not admin_levels:
+        raise ValueError("No admin_levels configured in assets_config.yaml")
+
+    outputs = []
+
+    for admin_level in admin_levels:
+        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
+        if not boundary_path.exists():
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
+            )
+            continue
+
+        context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
+        gdf = gpd.read_file(boundary_path)
+
+        id_col = f"{admin_level.upper()}_PCODE"
+        if id_col not in gdf.columns:
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: expected ID column '{id_col}' not found"
+            )
+            continue
+
+        try:
+            csv_path = calculate_cyclone_exposure(
+                context=context.log,
+                country_code=country_code,
+                admin_level=admin_level,
+            )
+            if csv_path:
+                outputs.append(csv_path)
+            else:
+                context.log.warning(f"No output produced for {country_code} {admin_level}")
+        except Exception as e:
+            context.log.error(f"Error processing {country_code} {admin_level}: {e}")
+
+    if not outputs:
+        context.log.warning(f"No cyclone exposure outputs generated for {country_code}")
+    else:
+        context.log.info(f"Generated {len(outputs)} cyclone exposure CSVs for {country_code}")
+
+    return outputs
+
 @asset(
     deps=["demographics_asset"], 
     partitions_def=country_partitions,
@@ -471,7 +530,7 @@ def vulnerability_asset(context, demographics_asset: List[str], rural_asset: Lis
     return outputs
 
 @asset(
-    deps=["demographics_asset", "facilities_asset", "coping_asset", "exposure_flood_asset", "vulnerability_asset"],
+    deps=["demographics_asset", "facilities_asset", "coping_asset", "exposure_flood_asset", "exposure_cyclone_asset", "vulnerability_asset"],
     partitions_def=multi_partitions,
 )
 def upload_minio_asset(context):
