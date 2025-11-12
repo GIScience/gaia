@@ -75,6 +75,7 @@ The dataset contains multiple thematic layers:
 - **Rural Population (`RWA_ADM2_rural_population`)** – Demographic indicators limited to rural populations.
 - **Vulnerability (`RWA_ADM2_vulnerability`)** – Combined indicators from Demographics and Rural Population.
 - **Flood Exposure (`RWA_ADM2_flood_exposure`)** – Exposure of populations and facilities to flood hazards.
+- **Cyclone Exposure (`RWA_ADM2_cyclone_exposure`)** – Exposure of populations and facilities to cyclones.
 
 
 <p>&nbsp;</p>
@@ -155,6 +156,17 @@ For each scenario, indicators include:
 
 Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/collection/id-0054)
 
+---
+
+#### **Cyclone Exposure (`RWA_ADM2_cyclone_exposure`)**
+Represents the exposure of populations and facilities to cyclones, based on historical cyclone tracks and intensity categories (1–3). Vulnerable populations and facilities are quantified per admin unit.
+
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1, 2, and 3
+- **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
+
+Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stewardship](https://www.ncei.noaa.gov/products/international-best-track-archive-for-climate-stewardship-ibtracs)
+
 <p>&nbsp;</p>
 <p>&nbsp;</p>
 
@@ -164,7 +176,7 @@ Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/col
 
 - **Coping Capacity** = Access + Facilities  
 - **Vulnerability** = Demographics + Rural Population  
-- **Exposure** = Vulnerable Population + Facilities exposed to Floods
+- **Exposure** = Vulnerable Population + Facilities exposed to Floods and Cyclones
 ---
 
 This dataset is part of HeiGIT’s **Risk Assessment Indicator Collection** on HDX.  
