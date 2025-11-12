@@ -102,6 +102,12 @@ def build_cyclone_buffers(context: Context, country_code: str, admin_level: str)
     ].mean(axis=1, skipna=True)
     gdf_ibtracs["mean_r34_m"] = gdf_ibtracs["mean_r34"] * 1852
     gdf_ibtracs["geometry"] = gdf_ibtracs.buffer(gdf_ibtracs["mean_r34_m"].fillna(0))
+    
+    # Fix potential invalid geometries
+    gdf_ibtracs = gdf_ibtracs[~gdf_ibtracs.geometry.is_empty & gdf_ibtracs.geometry.notnull()]
+    gdf_ibtracs['geometry'] = gdf_ibtracs.geometry.buffer(0)
+    country_gdf['geometry'] = country_gdf.geometry.buffer(0)
+
     gdf_ibtracs = gpd.clip(gdf_ibtracs, country_gdf)
 
     out_geojson = f"data/{country_code}/Temporary/{country_code}_cyclone_buffers.geojson"
