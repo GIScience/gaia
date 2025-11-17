@@ -35,7 +35,12 @@ def download_file(url, save_path):
                     f.write(chunk)
     print(f"Saved to: {save_path}")
 
-def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code):
+def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code,
+                                  simplify_tolerance=0.0001):
+    """
+    Convert shapefiles to simplified GeoJSON.
+    - simplify_tolerance: higher = more simplified, smaller file
+    """
     country_code = country_code.upper()
     output_folder = os.path.join(base_output_folder, country_code)
     os.makedirs(output_folder, exist_ok=True)
@@ -48,26 +53,35 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
                     gdf = gpd.read_file(shp_path)
                     basename = os.path.splitext(file)[0]
 
-                    # Detect admin level
+                    # Detect admin level (ADM0–ADM4)
                     level = None
-                    for i in range(5):  # ADM0–ADM4
+                    for i in range(5):
                         if f"adm{i}" in basename.lower() or f"admin{i}" in basename.lower():
                             level = f"ADM{i}"
                             break
 
                     if not level:
                         print(f"Skipping {file} (unknown admin level)")
-                        continue  # skip unknowns
+                        continue
 
+                    # Simplify geometry
+                    gdf_simplified = gdf.copy()
+                    gdf_simplified["geometry"] = gdf.geometry.simplify(
+                        tolerance=simplify_tolerance,
+                        preserve_topology=True
+                    )
+
+                    # Write simplified GeoJSON
                     geojson_filename = f"{country_code}_{level}.geojson"
                     geojson_path = os.path.join(output_folder, geojson_filename)
-                    gdf.to_file(geojson_path, driver="GeoJSON")
-                    print(f"Converted {file} -> {geojson_path}")
+                    gdf_simplified.to_file(geojson_path, driver="GeoJSON")
+
+                    print(f"Converted + simplified {file} → {geojson_path} (tolerance={simplify_tolerance})")
+
                 except Exception as e:
                     print(f"Failed to convert {file}: {e}")
 
 def find_shapefile_resources(resources):
-    """Return list of ZIP resource URLs that may contain shapefiles."""
     urls = []
     for res in resources:
         fmt = res.get("format", "").lower()
@@ -102,14 +116,13 @@ def download_shapefiles(country_code):
         try:
             download_file(url, zip_path)
 
-            # Extract to temp directory
             with tempfile.TemporaryDirectory() as tmpdir:
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     zip_ref.extractall(tmpdir)
                 convert_shapefiles_to_geojson(tmpdir, "data", country_code)
+
         except Exception as e:
             print(f"Failed to download {url}: {e}")
-
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
