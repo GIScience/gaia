@@ -6,6 +6,13 @@ from hdx.api.configuration import Configuration
 from hdx.data.dataset import Dataset, HDXError
 from datetime import datetime, timezone, timedelta
 
+class Context:
+    def info(self, msg):
+        print(f"INFO: {msg}")
+
+    def warning(self, msg):
+        print(f"WARNING: {msg}")
+
 
 def generate_links(country_code: str, local_folder: str):
     """Return list of (filename, public_download_url) for all files in the folder."""
@@ -13,9 +20,17 @@ def generate_links(country_code: str, local_folder: str):
     for fname in os.listdir(local_folder):
         if fname.endswith(".DS_Store"):
             continue
-        url = f"https://warm.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/{country_code.lower()}/{fname}"
+        url = (
+            f"https://warm.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/"
+            f"{country_code.lower()}/{fname}"
+        )
         links.append((fname, url))
     return links
+
+
+def cyclone_files(links):
+    """Return True if any filename contains 'cyclone'."""
+    return any("cyclone" in fname.lower() for fname, _ in links)
 
 
 def get_hdx_country(country_code: str, countries_config_path: str) -> str:
@@ -26,57 +41,58 @@ def get_hdx_country(country_code: str, countries_config_path: str) -> str:
         hdx_country = countries[country_code]["hdx_country"]
         return hdx_country.replace("-", " ").title()
     except KeyError:
-        raise ValueError(f"Country code '{country_code}' not found in {countries_config_path}")
+        raise ValueError(
+            f"Country code '{country_code}' not found in {countries_config_path}"
+        )
 
 
-def create_country_dataset(country_code: str, country_name: str, links, config):
+def create_country_dataset(country_code: str, country_name: str, links, config, context: Context):
     """Create or update a 'Risk Assessment Indicators' dataset in HDX for the country."""
     dataset_name = f"{country_name} - Risk Assessment Indicators"
     dataset_hdx_country = dataset_name.lower().replace(" ", "-")
 
-    dataset = Dataset()
-    dataset["name"] = dataset_hdx_country
-    dataset["title"] = dataset_name
-    dataset["dataset_type"] = "dataset_series"
-    # Set/update metadata (works for both new or existing datasets)
-    dataset["owner_org"] = config["hdx"]["owner_org"]
-    dataset["private"] = config["hdx"].get("private", False)
-    dataset.set_expected_update_frequency(config["hdx"].get("data_update_frequency", "Every six months"))
-    dataset["license_id"] = "cc-by-sa"
-    dataset["dataset_source"] = "Multiple sources"
-    dataset["maintainer"] = config["hdx"].get("maintainer", "Valentin Boehmer")
-    dataset["maintainer_email"] = config["hdx"].get("maintainer_email", "valentin.boehmer@heigit.org")
-    
-    dataset["methodology"] = (
-        "This dataset aggregates multiple risk assessment indicators for the country, "
-        "including demographics, facilities, environmental, and hazard data."
-        "Data sources include WorldPop, OpenStreetMap, HDX COD-AB, and other publicly available datasets. "
-        "All indicators were processed and harmonized by HeiGIT's GAIA Pipeline."
-    )
-    dataset["data_series"] = "Heidelberg Institute for Geoinformation Technology - Risk Assessment Indicators"
+    include_cyclone = cyclone_files(links)
 
-    dataset["notes"] = f"""
+    cyclone_section = (
+        f"""
+#### **Cyclone Exposure (`{country_code}_ADM2_cyclone_exposure`)**
+Represents the exposure of populations and facilities to cyclones, based on historical cyclone tracks and intensity categories (1–3). Vulnerable populations and facilities are quantified per admin unit.
+
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1–3
+- **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
+
+Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stewardship](https://www.ncei.noaa.gov/products/international-best-track-archive-for-climate-stewardship-ibtracs)
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+---
+"""
+        if include_cyclone
+        else ""
+    )
+
+    dataset_notes = f"""
 This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level 2**.
 It includes demographic, environmental, infrastructure, accessibility, and hazard-related data to support disaster risk and resilience analysis.
 
-All layers are derived from **HeiGIT’s GAIA Pipeline**, integrating open data sources such as [WorldPop](https://www.worldpop.org/), [OpenStreetMap](https://www.openstreetmap.org/), and [Google Earth Engine](https://earthengine.google.com/) based on [HDX COD-AB](https://data.humdata.org/dataset/?q=cod-ab) boundaries.
-For further information on the workflow and the processing steps of each layer, please visit the [GAIA Pipeline Documentation](https://giscience.github.io/gis-training-resource-center/content/GIS_AA/en_gaia_indicators_processing.html) and the [GAIA repository on GitHub](https://github.com/GIScience/gaia).
+All layers are derived from **HeiGIT’s GAIA Pipeline**, integrating open data sources such as [WorldPop](https://www.worldpop.org/), 
+[OpenStreetMap](https://www.openstreetmap.org/), and [Google Earth Engine](https://earthengine.google.com/) based on 
+[HDX COD-AB](https://data.humdata.org/dataset/?q=cod-ab) boundaries.
 
 ---
 
 ### **Data Overview**
 
-The dataset contains multiple thematic layers:
-
-- **Access to Services (`RWA_ADM2_access`)** – Population accessibility to education and health facilities.
-- **Facilities (`RWA_ADM2_facilities`)** – Availability of key service infrastructure.
-- **Coping Capacity (`RWA_ADM2_coping`)** – Combined indicators from Access and Facilities.
-- **Demographics (`RWA_ADM2_demographics`)** – Age and gender distribution.
-- **Rural Population (`RWA_ADM2_rural_population`)** – Demographic indicators limited to rural populations.
-- **Vulnerability (`RWA_ADM2_vulnerability`)** – Combined indicators from Demographics and Rural Population.
-- **Flood Exposure (`RWA_ADM2_flood_exposure`)** – Exposure of populations and facilities to flood hazards.
-- **Cyclone Exposure (`RWA_ADM2_cyclone_exposure`)** – Exposure of populations and facilities to cyclones.
-
+- **Access to Services (`{country_code}_ADM2_access`)**  
+- **Facilities (`{country_code}_ADM2_facilities`)**  
+- **Coping Capacity (`{country_code}_ADM2_coping`)**  
+- **Demographics (`{country_code}_ADM2_demographics`)**  
+- **Rural Population (`{country_code}_ADM2_rural_population`)**  
+- **Vulnerability (`{country_code}_ADM2_vulnerability`)**  
+- **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**  
+{("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
 
 <p>&nbsp;</p>
 <p>&nbsp;</p>
@@ -85,7 +101,7 @@ The dataset contains multiple thematic layers:
 
 ### **Indicator Descriptions**
 
-#### **Access to Services (`RWA_ADM2_access`)**
+#### **Access to Services (`{country_code}_ADM2_access`)**
 Represents the share of the population with access to key facilities within defined distances or travel times.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
@@ -97,7 +113,7 @@ Data Source: [openrouteservice (ORS)](https://openrouteservice.org/)
 
 ---
 
-#### **Facilities (`RWA_ADM2_facilities`)**
+#### **Facilities (`{country_code}_ADM2_facilities`)**
 Counts of essential service facilities within each district.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
@@ -109,81 +125,82 @@ Data Source: [OpenStreetMap (OSM)](https://www.openstreetmap.org)
 
 ---
 
-#### **Coping Capacity (`RWA_ADM2_coping`)**
+#### **Coping Capacity (`{country_code}_ADM2_coping`)**
 Combines **Access to Services** and **Facilities** data to represent a district’s coping capacity.
 
 ---
 
-#### **Demographics (`RWA_ADM2_demographics`)**
+#### **Demographics (`{country_code}_ADM2_demographics`)**
 Shows the population composition by age and gender.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
-- **female_pop** – Total female population
-- **children_u5** – Population under 5 years old
-- **female_u5** – Female population under 5 years old
-- **elderly** – Population aged 65 and older
-- **pop_u15** – Population under 15 years old
-- **female_u15** – Female population under 15 years old
+- **female_pop**
+- **children_u5**
+- **female_u5**
+- **elderly**
+- **pop_u15**
+- **female_u15**
 
 Data Source: [Worldpop](https://www.worldpop.org/)
 
 ---
 
-#### **Rural Population (`RWA_ADM2_rural_population`)**
-Same demographic breakdown as above, but limited to rural populations. Rural areas are those outside urban extents,
-typically characterized by lower population density, agricultural or natural land use, and limited infrastructure compared to urban centers.
-
-- **ADM2_PCODE** – Administrative division code (ADM2)
-- **female_pop_rural**, **children_u5_rural**, **female_u5_rural**, **elderly_rural**, **pop_u15_rural**, **female_u15_rural** – Rural demographic counts
-- **rural_pop_perc** – Percentage of total population living in rural areas
+#### **Rural Population (`{country_code}_ADM2_rural_population`)**
+Same demographic breakdown as above, but limited to rural populations.
 
 Data Source: [Global Human Settlement Layer (GHSL)](https://human-settlement.emergency.copernicus.eu/datasets.php)
 
 ---
 
-#### **Vulnerability (`RWA_ADM2_vulnerability`)**
-Combines **Demographics** and **Rural Population** indicators to represent socio-demographic vulnerability.
+#### **Vulnerability (`{country_code}_ADM2_vulnerability`)**
+Combines **Demographics** and **Rural Population** indicators.
 
 ---
 
-#### **Flood Exposure (`RWA_ADM2_flood_exposure`)**
-Shows population and facility exposure to flooding at 30 cm depth for multiple return periods (10-, 50-, 100-, and 500-year). Each prefix (RP10, RP50, RP100, RP500) indicates the return period scenario.  
+#### **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**
+Shows population and facility exposure to flooding at 30 cm depth for multiple return periods.
 
-For each scenario, indicators include:
-
-- **female_pop_30cm**, **children_u5_30cm**, **female_u5_30cm**, **elderly_30cm**, **pop_u15_30cm**, **female_u15_30cm** – Exposed population by group
-- **education_30cm_pct / count**, **hospitals_30cm_pct / count**, **primary_healthcare_30cm_pct / count** – Facility exposure (percentage and count)
-
-Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/collection/id-0054)
+Data Source: [JRC](https://data.jrc.ec.europa.eu/collection/id-0054)
 
 ---
 
-#### **Cyclone Exposure (`RWA_ADM2_cyclone_exposure`)**
-Represents the exposure of populations and facilities to cyclones, based on historical cyclone tracks and intensity categories (1–3). Vulnerable populations and facilities are quantified per admin unit.
-
-- **ADM2_PCODE** – Administrative division code (ADM2)
-- **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1, 2, and 3
-- **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
-
-Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stewardship](https://www.ncei.noaa.gov/products/international-best-track-archive-for-climate-stewardship-ibtracs)
-
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-
----
+{cyclone_section}
 
 ### **QGIS Plugin Risk Assessment Inputs**
 
 - **Coping Capacity** = Access + Facilities  
 - **Vulnerability** = Demographics + Rural Population  
-- **Exposure** = Vulnerable Population + Facilities exposed to Floods and Cyclones
----
+- **Exposure** = Vulnerable Population + Facilities exposed to Floods{" and Cyclones" if include_cyclone else ""}
 
 This dataset is part of HeiGIT’s **Risk Assessment Indicator Collection** on HDX.  
-See more at [HeiGIT on HDX](https://data.humdata.org/organization/heidelberg-institute-for-geoinformation-technology) and learn about HeiGIT’s research at [HeiGIT](https://heigit.org/).  
-
-We are happy to hear about your use-cases — contact us at [communications@heigit.org](mailto:communications@heigit.org)!
 """
+
+    dataset = Dataset()
+    dataset["name"] = dataset_hdx_country
+    dataset["title"] = dataset_name
+    dataset["dataset_type"] = "dataset_series"
+
+    dataset["owner_org"] = config["hdx"]["owner_org"]
+    dataset["private"] = config["hdx"].get("private", False)
+    dataset.set_expected_update_frequency(
+        config["hdx"].get("data_update_frequency", "Every six months")
+    )
+    dataset["license_id"] = "cc-by-sa"
+    dataset["dataset_source"] = "Multiple sources"
+    dataset["maintainer"] = config["hdx"].get("maintainer", "Valentin Boehmer")
+    dataset["maintainer_email"] = config["hdx"].get(
+        "maintainer_email", "valentin.boehmer@heigit.org"
+    )
+
+    dataset["methodology"] = (
+        "This dataset aggregates multiple risk assessment indicators for the country."
+    )
+
+    dataset["data_series"] = (
+        "Heidelberg Institute for Geoinformation Technology - Risk Assessment Indicators"
+    )
+
+    dataset["notes"] = dataset_notes
 
     dataset["tags"] = [
         {"name": "hazards and risk"},
@@ -194,6 +211,10 @@ We are happy to hear about your use-cases — contact us at [communications@heig
         {"name": "flooding"},
     ]
 
+    # If cyclone files exist → add cyclone tag
+    if include_cyclone:
+        dataset["tags"].append({"name": "cyclones-hurricanes-typhoons"})
+
     try:
         dataset.add_country_location(country_code)
     except HDXError as e:
@@ -201,12 +222,16 @@ We are happy to hear about your use-cases — contact us at [communications@heig
 
     # Set dataset time period: from six months ago to today
     end_date = datetime.now(timezone.utc)
-    start_date = end_date - timedelta(days=182)  # approx. 6 months
+    start_date = end_date - timedelta(days=182)
+    dataset["dataset_date"] = (
+        f"[{start_date.strftime('%Y-%m-%dT%H:%M:%S')} TO "
+        f"{end_date.strftime('%Y-%m-%dT%H:%M:%S')}]"
+    )
 
-    dataset["dataset_date"] = f"[{start_date.strftime('%Y-%m-%dT%H:%M:%S')} TO {end_date.strftime('%Y-%m-%dT%H:%M:%S')}]"
-    
-    # Add or update resources
+    # Add or update resources (with logging)
+    context.info("Uploading the following files to HDX:")
     for fname, url in links:
+        context.info(f" - {fname} → {url}")
         resource = {
             "name": fname,
             "description": f"{fname} - Risk assessment indicator for {country_name}",
@@ -215,15 +240,18 @@ We are happy to hear about your use-cases — contact us at [communications@heig
         }
         dataset.add_update_resource(resource)
 
-    # Create new dataset if it didn't exist, or update existing
     dataset.create_in_hdx()
     return dataset.get_hdx_url()
 
 
-def upload_to_hdx(country: str, config_file="configs/hdx_config.yaml", countries_config="configs/hdx_countries.yaml"):
+def upload_to_hdx(
+    country: str,
+    config_file="configs/hdx_config.yaml",
+    countries_config="configs/hdx_countries.yaml",
+    context=Context()
+):
     """Main entrypoint: upload all risk assessment files for a country to HDX."""
 
-    # Load config
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
 
@@ -234,18 +262,19 @@ def upload_to_hdx(country: str, config_file="configs/hdx_config.yaml", countries
 
     links = generate_links(country, local_folder)
 
-    # Setup HDX API
     Configuration.create(
         hdx_site=config["hdx"]["site"],
         user_agent="HDXDataSeriesScript",
         hdx_key=config["hdx"]["api_key"],
     )
 
-    return create_country_dataset(country, country_name, links, config)
+    return create_country_dataset(country, country_name, links, config, context=context)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Upload all risk assessment indicator files to HDX.")
+    parser = argparse.ArgumentParser(
+        description="Upload all risk assessment indicator files to HDX."
+    )
     parser.add_argument("country", help="ISO 3-letter country code (e.g. RWA)")
     parser.add_argument("config_file", help="Path to YAML config file")
     return parser.parse_args()
