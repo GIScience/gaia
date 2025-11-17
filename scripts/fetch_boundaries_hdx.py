@@ -51,7 +51,7 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
                     # Detect admin level
                     level = None
                     for i in range(5):  # ADM0–ADM4
-                        if f"adm{i}" in basename.lower():
+                        if f"adm{i}" in basename.lower() or f"admin{i}" in basename.lower():
                             level = f"ADM{i}"
                             break
 
