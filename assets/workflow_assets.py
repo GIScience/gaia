@@ -565,7 +565,7 @@ def upload_hdx_asset(context):
 
     context.log.info(f"[{country}] Uploading dataset to HDX")
 
-    url = upload_to_hdx(country, hdx_config_path, countries_config)
+    url = upload_to_hdx(country, hdx_config_path, countries_config, context.log)
 
     context.log.info(f"[{country}] Upload to HDX complete: {url}")
     return url
