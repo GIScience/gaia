@@ -74,7 +74,8 @@ Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stew
     )
 
     dataset_notes = f"""
-This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level 2**.
+This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level 2** and 
+can in particular be used to perform a structured risk assessment for **flood** {("and **cyclone** hazards." if include_cyclone else "hazards.")}
 It includes demographic, environmental, infrastructure, accessibility, and hazard-related data to support disaster risk and resilience analysis.
 
 All layers are derived from **HeiGIT’s GAIA Pipeline**, integrating open data sources such as [WorldPop](https://www.worldpop.org/), 
@@ -134,19 +135,24 @@ Combines **Access to Services** and **Facilities** data to represent a district�
 Shows the population composition by age and gender.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
-- **female_pop**
-- **children_u5**
-- **female_u5**
-- **elderly**
-- **pop_u15**
-- **female_u15**
+- **female_pop** – Total female population
+- **children_u5** – Population under 5 years old
+- **female_u5** – Female population under 5 years old
+- **elderly** – Population aged 65 and older
+- **pop_u15** – Population under 15 years old
+- **female_u15** – Female population under 15 years old
 
 Data Source: [Worldpop](https://www.worldpop.org/)
 
 ---
 
 #### **Rural Population (`{country_code}_ADM2_rural_population`)**
-Same demographic breakdown as above, but limited to rural populations.
+Same demographic breakdown as above, but limited to rural populations. Rural areas are those outside urban extents,
+typically characterized by lower population density, agricultural or natural land use, and limited infrastructure compared to urban centers.
+
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **female_pop_rural**, **children_u5_rural**, **female_u5_rural**, **elderly_rural**, **pop_u15_rural**, **female_u15_rural** – Rural demographic counts
+- **rural_pop_perc** – Percentage of total population living in rural areas
 
 Data Source: [Global Human Settlement Layer (GHSL)](https://human-settlement.emergency.copernicus.eu/datasets.php)
 
@@ -160,7 +166,12 @@ Combines **Demographics** and **Rural Population** indicators.
 #### **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**
 Shows population and facility exposure to flooding at 30 cm depth for multiple return periods.
 
-Data Source: [JRC](https://data.jrc.ec.europa.eu/collection/id-0054)
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **female_pop_30cm**, **children_u5_30cm**, **female_u5_30cm**, **elderly_30cm**, **pop_u15_30cm**, **female_u15_30cm** – Exposed population by group
+- **education_30cm_pct / count**, **hospitals_30cm_pct / count**, **primary_healthcare_30cm_pct / count** – Facility exposure (percentage and count)
+
+Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/collection/id-0054)
+
 
 ---
 
@@ -172,7 +183,10 @@ Data Source: [JRC](https://data.jrc.ec.europa.eu/collection/id-0054)
 - **Vulnerability** = Demographics + Rural Population  
 - **Exposure** = Vulnerable Population + Facilities exposed to Floods{" and Cyclones" if include_cyclone else ""}
 
-This dataset is part of HeiGIT’s **Risk Assessment Indicator Collection** on HDX.  
+This dataset is part of HeiGIT’s **Risk Assessment Indicator Collection** on HDX.
+See more at [HeiGIT on HDX](https://data.humdata.org/organization/heidelberg-institute-for-geoinformation-technology) and learn about HeiGIT’s research at [HeiGIT](https://heigit.org/).  
+
+We are happy to hear about your use-cases — contact us at [communications@heigit.org](mailto:communications@heigit.org)!
 """
 
     dataset = Dataset()
