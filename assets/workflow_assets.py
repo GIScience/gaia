@@ -39,6 +39,21 @@ multi_partitions = MultiPartitionsDefinition(
     }
 )
 
+def find_best_available_admin_level(base_path: Path, country_code: str, admin_level: str):
+    """
+    Given the requested admin level (e.g. 'ADM2'), fallback to ADM1 → ADM0 when files are missing.
+    Returns (final_level, path) or (None, None) if nothing exists.
+    """
+    lvl_num = int(admin_level.replace("ADM", ""))
+
+    for test_lvl in range(lvl_num, -1, -1):  # e.g. 2 → 1 → 0
+        level_name = f"ADM{test_lvl}"
+        boundary_path = base_path / f"{country_code}_{level_name}.geojson"
+        if boundary_path.exists():
+            return level_name, boundary_path
+
+    return None, None
+
 
 @asset(partitions_def=country_partitions)
 def boundary_asset(context) -> str:
@@ -104,7 +119,7 @@ def demographics_asset(context) -> list[str]:
     """
     country_code = context.partition_key.upper()
 
-    # Get admin levels from config
+   # Get admin levels from config
     admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
     if not admin_levels:
         raise ValueError("No admin_levels configured in assets_config.yaml")
@@ -112,17 +127,46 @@ def demographics_asset(context) -> list[str]:
     outputs = []
 
     for admin_level in admin_levels:
-        try:
-            output_csv = aggregate_worldpop_to_csv(
-                country_code=country_code,
-                admin_level=admin_level,
-                context_log=context.log
+        orig_level = admin_level
+
+        # Extract numeric (ADM2 → 2)
+        lvl_num = int(admin_level.replace("ADM", ""))
+
+        # Try ADM(level), ADM(level-1), ... ADM0
+        fallback_levels = [f"ADM{n}" for n in range(lvl_num, -1, -1)]
+
+        success = False
+
+        for test_level in fallback_levels:
+            try:
+                output_csv = aggregate_worldpop_to_csv(
+                    country_code=country_code,
+                    admin_level=test_level,
+                    context_log=context.log
+                )
+
+                if test_level != orig_level:
+                    context.log.info(
+                        f"[{country_code}] WorldPop fallback: using {test_level} "
+                        f"instead of requested {orig_level}"
+                    )
+
+                outputs.append(output_csv)
+                success = True
+                break  # exit fallback loop
+
+            except Exception as e:
+                context.log.warning(
+                    f"[{country_code}] WorldPop failed for {test_level}: {e}"
+                )
+                continue
+
+        if not success:
+            context.log.warning(
+                f"[{country_code}] No available admin level found for requested {orig_level} "
+                f"(tried {fallback_levels})"
             )
-            outputs.append(output_csv)
-        except Exception as e:
-            context.log.warning(f"Skipping {country_code} {admin_level}: {e}")
             continue
-        
 
     return outputs
 
@@ -144,12 +188,17 @@ def facilities_asset(context, boundary_asset: str) -> Output[List[str]]:
     summary_paths = []
 
     for admin_level in admin_levels:
-        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-        if not boundary_path.exists():
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
-            )
+        orig_level = admin_level
+        level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
+
+        if not level:
+            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
             continue
+
+        if level != orig_level:
+            context.log.info(f"[{country_code}] Using fallback admin level {level} (requested {orig_level})")
+
+        admin_level = level  # use the found level
 
         context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
 
@@ -213,12 +262,17 @@ def exposure_flood_asset(context, boundary_asset: str) -> list[str]:
     outputs = []
 
     for admin_level in admin_levels:
-        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-        if not boundary_path.exists():
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
-            )
+        orig_level = admin_level
+        level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
+
+        if not level:
+            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
             continue
+
+        if level != orig_level:
+            context.log.info(f"[{country_code}] Using fallback admin level {level} (requested {orig_level})")
+
+        admin_level = level  # use the found level
 
         context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
         gdf = gpd.read_file(boundary_path)
@@ -266,12 +320,17 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
     outputs = []
 
     for admin_level in admin_levels:
-        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-        if not boundary_path.exists():
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
-            )
+        orig_level = admin_level
+        level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
+
+        if not level:
+            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
             continue
+
+        if level != orig_level:
+            context.log.info(f"[{country_code}] Using fallback admin level {level} (requested {orig_level})")
+
+        admin_level = level  # use the found level
 
         context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
         gdf = gpd.read_file(boundary_path)
@@ -325,12 +384,17 @@ def rural_asset(context, boundary_asset: str) -> list[str]:
     outputs = []
 
     for admin_level in admin_levels:
-        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-        if not boundary_path.exists():
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
-            )
+        orig_level = admin_level
+        level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
+
+        if not level:
+            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
             continue
+
+        if level != orig_level:
+            context.log.info(f"[{country_code}] Using fallback admin level {level} (requested {orig_level})")
+
+        admin_level = level  # use the found level
 
         context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
         gdf = gpd.read_file(boundary_path)
@@ -380,12 +444,17 @@ def access_asset(context, boundary_asset: str) -> list[str]:
     outputs = []
 
     for admin_level in admin_levels:
-        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-        if not boundary_path.exists():
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
-            )
+        orig_level = admin_level
+        level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
+
+        if not level:
+            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
             continue
+
+        if level != orig_level:
+            context.log.warning(f"[{country_code}] Using fallback admin level {level} (requested {orig_level})")
+
+        admin_level = level  # use the found level
 
         context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
         gdf = gpd.read_file(boundary_path)
