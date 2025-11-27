@@ -78,7 +78,7 @@ This dataset provides comprehensive **Risk Assessment Indicators** for **{countr
 can in particular be used to perform a structured risk assessment for **flood** {("and **cyclone** hazards." if include_cyclone else "hazards.")}
 It includes demographic, environmental, infrastructure, accessibility, and hazard-related data to support disaster risk and resilience analysis.
 
-All layers are derived from **HeiGIT’s GAIA Pipeline**, integrating open data sources such as [WorldPop](https://www.worldpop.org/), 
+All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.io/gis-training-resource-center/content/GIS_AA/en_gaia_indicators_processing.html), integrating open data sources such as [WorldPop](https://www.worldpop.org/), 
 [OpenStreetMap](https://www.openstreetmap.org/), and [Google Earth Engine](https://earthengine.google.com/) based on 
 [HDX COD-AB](https://data.humdata.org/dataset/?q=cod-ab) boundaries.
 
