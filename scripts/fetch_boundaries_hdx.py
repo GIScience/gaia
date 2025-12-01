@@ -80,20 +80,29 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
 
                 except Exception as e:
                     print(f"Failed to convert {file}: {e}")
-
 def find_shapefile_resources(resources):
     urls = []
+    keywords = ["adm", "admin", "shp", "shapefile"] 
+
     for res in resources:
         fmt = res.get("format", "").lower()
         url = res.get("url", "").lower()
         name = res.get("name", "").lower()
 
+        # 1. Direct format match
         if fmt in ("zipped shapefiles", "shapefile", "zip"):
             urls.append(res.get("url"))
-        elif url.endswith(".zip"):
+            continue
+
+        # 2. URL looks like a ZIP file
+        if url.endswith(".zip"):
             urls.append(res.get("url"))
-        elif "shp" in name or "shapefile" in name:
+            continue
+
+        # 3. keywords in name
+        if any(k in name for k in keywords) or any(k in url for k in keywords):
             urls.append(res.get("url"))
+            continue
 
     return urls
 
