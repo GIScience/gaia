@@ -81,29 +81,46 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
                 except Exception as e:
                     print(f"Failed to convert {file}: {e}")
 
-                    
+
 def find_shapefile_resources(resources):
     urls = []
-    keywords = ["adm", "Adm", "ADM", "Admin", "ADMIN", "admin", "shp"," SHP", "Shapefile", "shapefile"] 
+
+    shapefile_keywords = ["shp", "shapefile"]
+    admin_keywords = ["adm", "admin"]
+    geojson_keywords = ["geojson", "json"]
+    geopackage_keywords = ["gpkg", "gokg", "geopackage"]
 
     for res in resources:
         fmt = res.get("format", "").lower()
         url = res.get("url", "").lower()
         name = res.get("name", "").lower()
+        original_url = res.get("url")  # preserve original capitalization
 
-        # 1. Direct format match
-        if fmt in ("zipped shapefiles", "shapefile", "zip"):
-            urls.append(res.get("url"))
+        # 1. Format-based detection
+        if fmt in ("zipped shapefiles", "shapefile", "zip", "geojson", "json", "gpkg", "gokg"):
+            urls.append(original_url)
             continue
 
-        # 2. URL looks like a ZIP file
-        if url.endswith(".zip"):
-            urls.append(res.get("url"))
+        # 2. URL-based detection
+        if url.endswith((".zip", ".geojson", ".json", ".gpkg", ".gokg")):
+            urls.append(original_url)
             continue
 
-        # 3. keywords in name
-        if any(k in name for k in keywords) or any(k in url for k in keywords):
-            urls.append(res.get("url"))
+        # 3. Keyword-based detection
+        if any(k in name for k in shapefile_keywords):
+            urls.append(original_url)
+            continue
+
+        if any(k in name for k in admin_keywords) or any(k in url for k in admin_keywords):
+            urls.append(original_url)
+            continue
+
+        if any(k in name for k in geojson_keywords) or any(k in url for k in geojson_keywords):
+            urls.append(original_url)
+            continue
+
+        if any(k in name for k in geopackage_keywords) or any(k in url for k in geopackage_keywords):
+            urls.append(original_url)
             continue
 
     return urls
