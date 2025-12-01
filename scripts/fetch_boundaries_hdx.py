@@ -86,7 +86,7 @@ def find_shapefile_resources(resources):
     urls = []
 
     shapefile_keywords = ["shp", "shapefile"]
-    admin_keywords = ["adm", "admin"]
+    admin_keywords = ["adm", "admin", "ADM", "ADMIN", "administrative", "Administrative", "Admin"]
     geojson_keywords = ["geojson", "json"]
     geopackage_keywords = ["gpkg", "gokg", "geopackage"]
 
