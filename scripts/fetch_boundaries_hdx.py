@@ -80,6 +80,8 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
 
                 except Exception as e:
                     print(f"Failed to convert {file}: {e}")
+
+                    
 def find_shapefile_resources(resources):
     urls = []
     keywords = ["adm", "Adm", "ADM", "Admin", "ADMIN", "admin", "shp"," SHP", "Shapefile", "shapefile"] 
