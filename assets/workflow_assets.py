@@ -365,12 +365,11 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
 
 @asset(
     partitions_def=country_partitions,
-    ins={
-        "boundary_asset": AssetIn(),
+    ins={"boundary_asset": AssetIn(),
         "demographics_asset": AssetIn(),
-    },
+},
 )
-def rural_asset(context, boundary_asset: str) -> list[str]:
+def rural_asset(context, boundary_asset: str, demographics_asset: str) -> list[str]:
     """
     For the given country, iterate over configured admin levels.
     Generate rural population CSVs using WorldPop + SMOD.
