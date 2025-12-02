@@ -362,10 +362,13 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
 
     return outputs
 
+
 @asset(
-    deps=["demographics_asset"], 
     partitions_def=country_partitions,
-    ins={"boundary_asset": AssetIn()},
+    ins={
+        "boundary_asset": AssetIn(),
+        "demographics_asset": AssetIn(),
+    },
 )
 def rural_asset(context, boundary_asset: str) -> list[str]:
     """
