@@ -270,7 +270,7 @@ def upload_to_hdx(
         config = yaml.safe_load(f)
 
     country_name = get_hdx_country(country, countries_config)
-    local_folder = os.path.join("data", country, "output")
+    local_folder = os.path.join("data", country, "Output")
     if not os.path.isdir(local_folder):
         raise FileNotFoundError(f"Folder not found: {local_folder}")
 
