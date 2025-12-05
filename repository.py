@@ -14,6 +14,7 @@ from assets.workflow_assets import (
     vulnerability_asset,
     upload_minio_asset,
     upload_hdx_asset,  
+    cleanup_asset,
 )
 
 

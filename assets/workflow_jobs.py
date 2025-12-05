@@ -11,6 +11,7 @@ from assets.workflow_assets import (
     access_asset,
     coping_asset,
     vulnerability_asset,
+    cleanup_asset,
     #upload_minio_asset,
     # upload_hdx_asset  
 )
@@ -26,6 +27,7 @@ ASSETS_TO_RUN = [
     access_asset,
     coping_asset,
     vulnerability_asset,
+    cleanup_asset,
     #upload_minio_asset,
 ]
 
