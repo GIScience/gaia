@@ -13,6 +13,7 @@ from assets.workflow_assets import (
     vulnerability_asset,
     upload_minio_asset,
     upload_hdx_asset,  
+    cleanup_asset,
 )
 
 
@@ -29,7 +30,8 @@ defs = Definitions(
         coping_asset,
         vulnerability_asset,
         upload_minio_asset,
-        upload_hdx_asset,     
+        upload_hdx_asset,
+        cleanup_asset,     
     ],
     jobs=[
         workflow_job,          # job without upload_hdx
