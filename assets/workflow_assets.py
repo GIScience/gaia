@@ -228,8 +228,7 @@ def facilities_asset(context, boundary_asset: str) -> Output[List[str]]:
             summary_paths.append(str(summary_path))
 
     if not summary_paths:
-        context.log.warning(f"No facility outputs created for {country_code}")
-        return Output([], metadata={"country": country_code})
+        raise RuntimeError(f"No facility outputs created for {country_code}")
 
     return Output(
         summary_paths,
