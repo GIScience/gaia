@@ -21,7 +21,7 @@ def generate_links(country_code: str, local_folder: str):
         if fname.endswith(".DS_Store"):
             continue
         url = (
-            f"https://warm.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/"
+            f"https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/"
             f"{country_code.lower()}/{fname}"
         )
         links.append((fname, url))
