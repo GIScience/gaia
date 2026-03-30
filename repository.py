@@ -1,5 +1,5 @@
 from dagster import Definitions
-from assets.workflow_jobs import workflow_job
+from assets.workflow_jobs import workflow_job, viz_job
 # Import all assets
 from assets.workflow_assets import (
     boundary_asset, 
@@ -12,8 +12,12 @@ from assets.workflow_assets import (
     access_asset,
     coping_asset,
     vulnerability_asset,
+    prep_visualization_asset,
+    risk_score_asset,
     upload_minio_asset,
+    upload_viz_minio_asset,
     upload_hdx_asset,  
+    check_hdx_downloads_asset,
     cleanup_asset,
 )
 

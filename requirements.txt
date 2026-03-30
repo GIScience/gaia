@@ -18,3 +18,5 @@ geemap==0.36.2                     # google earth engine mapping
 rasterstats==0.20.0                # zonal statistics
 hdx-python-api==6.4.6              # hdx api
 overpass==0.7                      # overpass api
+pyarrow
+tippecanoe

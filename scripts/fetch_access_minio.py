@@ -37,7 +37,7 @@ CATEGORY_SPECS = {
 
 def download_access_gpkg(country_code, category, work_dir, context):
     """Download accessibility gpkg file if missing, return path."""
-    url = f"https://warm.storage.heigit.org/heigit-hdx-public/access/{country_code.lower()}/{country_code}_{category}_access.gpkg"
+    url = f"https://hot.storage.heigit.org/heigit-hdx-public/access/{country_code.lower()}/{country_code}_{category}_access.gpkg"
     gpkg_path = Path(work_dir) / f"{country_code}_{category}_access.gpkg"
 
     if not gpkg_path.exists():

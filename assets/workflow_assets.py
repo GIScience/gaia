@@ -1,4 +1,4 @@
-from dagster import MultiPartitionsDefinition, StaticPartitionsDefinition, asset, AssetIn
+from dagster import MultiPartitionsDefinition, StaticPartitionsDefinition, asset, Output, AssetIn
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
@@ -16,8 +16,13 @@ from scripts.fetch_facilities_ohsome_overpass import fetch_ohsome, fetch_overpas
 from scripts.fetch_ruralness_ghsl import compute_rural_population
 from scripts.fetch_access_minio import compute_access_population
 from scripts.fetch_cyclones_ncei import calculate_cyclone_exposure
-from dagster import Output
 from typing import List
+import numpy as np
+import requests
+import subprocess
+import tempfile
+
+LAYER_PREFIXES = ["cop", "exp", "vul"]
 
 ASSET_CONFIG_YAML_PATH = os.path.join(os.getcwd(), "configs", "assets_config.yaml")
 with open(ASSET_CONFIG_YAML_PATH) as _fp:
@@ -713,6 +718,88 @@ def upload_hdx_asset(context):
 
     context.log.info(f"[{country}] Upload to HDX complete: {url}")
     return url
+
+    
+@asset(
+    deps=["upload_hdx_asset"], 
+    partitions_def=country_partitions,
+)
+def check_hdx_downloads_asset(context):
+    """
+    Check that uploaded datasets are accessible on HDX (HOT storage public links).
+
+    Rules:
+    - If all expected files exist → success
+    - If no files exist → success (country not on HDX)
+    - If some files exist but at least one is missing → fail
+    """
+
+    country = context.partition_key.upper()
+
+    FILE_TYPES = [
+        "access",
+        "coping",
+        "demographics",
+        "facilities",
+        "flood_exposure",
+        "rural_population",
+        "vulnerability",
+    ]
+
+    ADM_LEVELS = ["ADM2", "ADM1"]
+
+    BASE_HDX_URL = (
+        "https://hot.storage.heigit.org/heigit-hdx-public/"
+        "risk_assessment_inputs/{country}/{filename}"
+    )
+
+    missing_files = []
+    existing_files = []
+
+    for file_type in FILE_TYPES:
+        file_found = False
+        for adm in ADM_LEVELS:
+            filename = f"{country}_{adm}_{file_type}.csv"
+            url = BASE_HDX_URL.format(country=country.lower(), filename=filename)
+
+            try:
+                r = requests.head(url, timeout=30)
+                if r.status_code == 200:
+                    context.log.info(f"[{country}] HDX file accessible: {filename}")
+                    existing_files.append(filename)
+                    file_found = True
+                    break  # stop at first available ADM level
+                elif r.status_code == 404:
+                    continue  # try next ADM level
+                else:
+                    context.log.warning(f"[{country}] HDX file returned {r.status_code}: {filename}")
+                    missing_files.append((filename, f"HTTP {r.status_code}"))
+                    file_found = True
+                    break
+            except Exception as e:
+                context.log.error(f"[{country}] Error accessing HDX file {filename}: {e}")
+                missing_files.append((filename, str(e)))
+                file_found = True
+                break
+
+        if not file_found:
+            context.log.warning(f"[{country}] HDX file not found: {file_type} (tried ADM2 and ADM1)")
+            missing_files.append((f"{country}_ADM2_or_ADM1_{file_type}.csv", "missing"))
+
+    if 0 < len(existing_files) < len(FILE_TYPES):
+        # Some files exist but not all → fail
+        error_msg = "\n".join([f"{fname}: {reason}" for fname, reason in missing_files])
+        raise RuntimeError(f"[{country}] Some HDX files are missing or not accessible:\n{error_msg}")
+
+    # Otherwise:
+    # - All files exist → success
+    # - No files exist → success (country not on HDX)
+    if len(existing_files) == 0:
+        context.log.info(f"[{country}] No HDX files found, assuming country not uploaded → OK")
+    else:
+        context.log.info(f"[{country}] All HDX files are accessible")
+
+    return True
 
 
 @asset(

@@ -12,6 +12,9 @@ from assets.workflow_assets import (
     coping_asset,
     vulnerability_asset,
     cleanup_asset,
+    prep_visualization_asset,
+    risk_score_asset,
+    upload_viz_minio_asset,
     #upload_minio_asset,
     # upload_hdx_asset  
 )
@@ -34,4 +37,18 @@ ASSETS_TO_RUN = [
 workflow_job = define_asset_job(
     name="local_workflow_job",
     selection=ASSETS_TO_RUN,
+)
+
+
+# All assets you DO want in the job
+ASSETS_VOR_VIZ = [
+    boundary_asset,
+    prep_visualization_asset,
+    risk_score_asset,
+    upload_viz_minio_asset,
+]
+
+viz_job = define_asset_job(
+    name="visualization_job",
+    selection=ASSETS_VOR_VIZ,
 )
