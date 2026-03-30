@@ -9,7 +9,7 @@ ALB:
   hdx_country: albania
 ARE:
   region: asia
-  hdx_country: gcc-states
+  hdx_country: United-arab-emirates
 ARG:
   region: south-america
   hdx_country: argentina
@@ -18,7 +18,7 @@ ARM:
   hdx_country: armenia
 ATG:
   region: central-america
-  hdx_country: none
+  hdx_country: antigua-and-barbuda
 AZE:
   region: asia
   hdx_country: azerbaijan
@@ -39,7 +39,7 @@ BGR:
   hdx_country: bulgaria
 BHR:
   region: asia
-  hdx_country: gcc-states
+  hdx_country: bahrain
 BHS:
   region: central-america
   hdx_country: bahamas
@@ -204,10 +204,10 @@ KIR:
   hdx_country: kiribati
 KNA:
   region: central-america
-  hdx_country: none
+  hdx_country: saint-kitts-and-nevis
 KWT:
   region: asia
-  hdx_country: gcc-states
+  hdx_country: kuwait
 LAO:
   region: asia
   hdx_country: laos
@@ -222,7 +222,7 @@ LBY:
   hdx_country: libya
 LCA:
   region: central-america
-  hdx_country: none
+  hdx_country: saint-lucia
 LKA:
   region: asia
   hdx_country: sri-lanka
@@ -272,8 +272,8 @@ MWI:
   region: africa
   hdx_country: malawi
 MYS:
-  region: africa
-  hdx_country: malawi
+  region: asia
+  hdx_country: malaysia
 NAM:
   region: africa
   hdx_country: namibia
@@ -291,7 +291,7 @@ NPL:
   hdx_country: nepal
 OMN:
   region: asia
-  hdx_country: gcc-states
+  hdx_country: oman
 PAK:
   region: asia
   hdx_country: pakistan
@@ -306,7 +306,7 @@ PHL:
   hdx_country: philippines
 PNG:
   region: asia
-  hdx_country: indonesia
+  hdx_country: papua-new-guinea
 POL:
   region: europe
   hdx_country: poland
@@ -318,19 +318,19 @@ PRY:
   hdx_country: paraguay
 QAT:
   region: asia
-  hdx_country: gcc-states
+  hdx_country: qatar
 ROU:
   region: europe
   hdx_country: romania
 RUS:
   region: russia
-  hdx_country: none
+  hdx_country: russia
 RWA:
   region: africa
   hdx_country: rwanda
 SAU:
   region: asia
-  hdx_country: gcc-states
+  hdx_country: saudi-arabia
 SDN:
   region: africa
   hdx_country: sudan
@@ -384,13 +384,13 @@ TJK:
   hdx_country: tajikistan
 TLS:
   region: asia
-  hdx_country: indonesia
+  hdx_country: timor-leste
 TON:
   region: australia-oceania
   hdx_country: tonga
 TTO:
   region: central-america
-  hdx_country: none
+  hdx_country: trinidad-and-tobago
 TUN:
   region: africa
   hdx_country: tunisia
@@ -414,7 +414,7 @@ UZB:
   hdx_country: uzbekistan
 VCT:
   region: central-america
-  hdx_country: none
+  hdx_country: saint-vincent-and-the-grenadines
 VEN:
   region: south-america
   hdx_country: venezuela

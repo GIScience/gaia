@@ -44,6 +44,7 @@ def upload_to_minio(country: str, dataset_type: str, config_file="configs/minio_
     config = load_minio_config(config_file)
 
     in_dir = os.path.join("data", country, "Output")
+    
     if not os.path.isdir(in_dir):
         raise FileNotFoundError(f"Output directory not found: {in_dir}")
 
