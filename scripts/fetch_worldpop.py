@@ -10,7 +10,7 @@ import logging
 import shutil
 from rasterstats import zonal_stats
 
-# Define indicators directly
+# --- UPDATED CONSTANTS ---
 INDICATORS = {
     "female_pop": {"ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80], "sexes": ["f"]},
     "children_u5": {"ages": [0, 1], "sexes": ["f", "m"]},
@@ -21,9 +21,10 @@ INDICATORS = {
 }
 
 BASE_URL = "https://data.worldpop.org/GIS"
-POP_TIMEFRAME = "Global_2000_2020_Constrained"
-YEAR = "2020"
-
+POP_TIMEFRAME = "Global_2015_2030"
+RELEASE = "R2025A"
+YEAR = "2030"  # Updated to match your example year
+# -------------------------
 
 def download_url(url, dest_path):
     resp = requests.get(url, stream=True)
@@ -32,68 +33,44 @@ def download_url(url, dest_path):
         for chunk in resp.iter_content(1024 * 1024):
             fp.write(chunk)
 
-
 def merge_and_sum_rasters(raster_paths: List[str], out_path: str, context_log):
-    """
-    Open each path in `raster_paths`, read band 1 into memory, sum them,
-    and write a single‐band float32 GeoTIFF to `out_path`.
-    """
     if not raster_paths:
         raise ValueError("No rasters passed for merging!")
-
     with rasterio.open(raster_paths[0]) as src0:
         meta = src0.meta.copy()
         data_sum = src0.read(1, masked=True).filled(0).astype("float64")
-
     for p in raster_paths[1:]:
         with rasterio.open(p) as src:
             arr = src.read(1, masked=True).filled(0).astype("float64")
             data_sum += arr
-
     meta.update(dtype="float32", count=1, compress="lzw", nodata=0)
-
     with rasterio.open(out_path, "w", **meta) as dst:
         dst.write(data_sum.astype("float32"), 1)
-
     context_log.info(f"Wrote merged raster to {out_path}")
 
-
 def fetch_worldpop(country, context_log=None, worldpop_code=None):
-    """
-    Download WorldPop rasters for a country and aggregate into indicator rasters.
-    Produces 6 GeoTIFFs: one per indicator (no total population).
-    """
     if context_log is None:
         logging.basicConfig(level=logging.INFO)
         context_log = logging.getLogger("worldpop")
 
     country = country.upper()
+    worldpop_code = worldpop_code or country
+    worldpop_code_low = worldpop_code.lower()
 
-    if not worldpop_code:
-        worldpop_code = country
-        worldpop_code_low = country.lower()
-    else:
-        worldpop_code_low = worldpop_code.lower()
-
-    # Force output directory to Temporary
     out_dir = os.path.join("data", country, "Temporary")
     os.makedirs(out_dir, exist_ok=True)
 
-    # Pre-check: if all 6 indicator rasters already exist, skip
     expected_outputs = [
         os.path.join(out_dir, f"{country}_pop_{ind_name}_{YEAR}_constrained.tif")
         for ind_name in INDICATORS.keys()
     ]
     if all(os.path.exists(path) for path in expected_outputs):
-        context_log.info(f"[{country}] → all {len(expected_outputs)} WorldPop indicators already exist, skipping download.")
+        context_log.info(f"[{country}] → indicators exist, skipping.")
         return expected_outputs
     
     out_dir_raw = os.path.join(out_dir, "worldpop_raw")
     os.makedirs(out_dir_raw, exist_ok=True)
 
-    downloaded = []
-
-    # 1) Download needed age/sex rasters
     needed_bins = set()
     for ind in INDICATORS.values():
         for sex in ind["sexes"]:
@@ -101,21 +78,28 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
                 needed_bins.add((sex, age))
 
     for sex, age in needed_bins:
-        fname = f"{worldpop_code_low}_{sex}_{age}_{YEAR}_constrained.tif"
-        url = f"{BASE_URL}/AgeSex_structures/{POP_TIMEFRAME}/{YEAR}/{worldpop_code}/{fname}"
+        # --- NEW FILENAME & URL LOGIC ---
+        # Format age as 2 digits (e.g., 0 -> 00, 5 -> 05)
+        age_str = str(age).zfill(2)
+        
+        # New filename pattern: afg_f_00_2030_CN_100m_R2025A_v1.tif
+        fname = f"{worldpop_code_low}_{sex}_{age_str}_{YEAR}_CN_100m_{RELEASE}_v1.tif"
+        
+        # New URL structure: .../R2025A/2030/AFG/v1/100m/constrained/filename
+        url = f"{BASE_URL}/AgeSex_structures/{POP_TIMEFRAME}/{RELEASE}/{YEAR}/{worldpop_code}/v1/100m/constrained/{fname}"
+        # --------------------------------
+        
         dest = os.path.join(out_dir_raw, f"{country}_{sex}_{age}_{YEAR}_constrained.tif")
         if not os.path.exists(dest):
-            context_log.info(f"[{country}] → downloading {sex}_{age}")
+            context_log.info(f"[{country}] → downloading {sex}_{age_str} from {url}")
             try:
                 download_url(url, dest)
             except Exception as e:
-                context_log.info(f"[ERROR] failed to download {url}: {e}")
+                context_log.error(f"Failed to download {url}: {e}")
                 sys.exit(1)
-        else:
-            context_log.info(f"[{country}] → skipping existing {fname}")
-        downloaded.append(dest)
+        downloaded_path = dest
 
-    # 2) Aggregate indicators
+    # Aggregate indicators (Logic remains the same)
     processed = []
     for ind_name, ind in INDICATORS.items():
         filtered_paths = [
@@ -125,23 +109,11 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
         ]
         merged_out = os.path.join(out_dir, f"{country}_pop_{ind_name}_{YEAR}_constrained.tif")
         if not os.path.exists(merged_out):
-            context_log.info(f"[{country}] → processing indicator {ind_name}")
-            try:
-                merge_and_sum_rasters(filtered_paths, merged_out, context_log)
-            except Exception as e:
-                context_log.info(f"[ERROR] failed to process {ind_name}: {e}")
-                sys.exit(1)
-        else:
-            context_log.info(f"[{country}] → skipping existing {ind_name}")
+            merge_and_sum_rasters(filtered_paths, merged_out, context_log)
         processed.append(merged_out)
 
-
-    # 3) Delete raw folder
     if os.path.exists(out_dir_raw):
         shutil.rmtree(out_dir_raw)
-        context_log.info(f"[{country}] → deleted raw folder: {out_dir_raw}")
-
-    context_log.info(f"\n✔ ∙ {len(processed)} indicators saved under {out_dir}")
     return processed
 
 
