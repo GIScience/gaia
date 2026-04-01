@@ -28,7 +28,7 @@ def process_crops_for_admin(country_code: str, admin_level: str, config_path="co
 
     gdf = gpd.read_file(f"data/{country_code}/{country_code}_{admin_level}.geojson")
 
-    chunk_size = 20
+    chunk_size = 5
     start_idx = 0
     
     # Ensure Output folder exists

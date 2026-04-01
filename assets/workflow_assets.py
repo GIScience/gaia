@@ -40,7 +40,6 @@ multi_partitions = MultiPartitionsDefinition(
     }
 )
 
-
 @asset(partitions_def=country_partitions)
 def boundary_asset(context) -> str:
     """
@@ -92,6 +91,7 @@ def boundary_asset(context) -> str:
         context.log.warning(f"{country_code}: No ID columns detected in any generated GeoJSON files")
 
     return data_dir
+
 
 @asset(
     deps=["boundary_asset"],
