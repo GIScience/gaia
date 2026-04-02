@@ -8,7 +8,7 @@ import shutil
 from scripts.fetch_boundaries_hdx import download_shapefiles
 from scripts.fetch_worldpop import aggregate_worldpop_to_csv
 from scripts.upload_minio import upload_to_minio
-from scripts.upload_to_hdx import upload_to_hdx
+from scripts.upload_to_hdx import smart_upload_to_hdx
 from scripts.fetch_floods_jrc import process_flood_impact, ALLOWED_RPS
 from scripts.fetch_facilities_ohsome_overpass import fetch_ohsome, fetch_overpass
 from scripts.fetch_ruralness_ghsl import compute_rural_population
@@ -1070,21 +1070,60 @@ def upload_minio_asset(context):
     upload_to_minio(country, category)
     context.log.info(f"[{country}] Uploaded {category} dataset(s) to MinIO successfully.")
 
+
 @asset(
-    deps=["upload_minio_asset"], 
     partitions_def=country_partitions,
+    deps=[
+        "demographics_asset", 
+        "facilities_asset", 
+        "exposure_flood_asset", 
+        "exposure_cyclone_asset", 
+        "rural_asset", 
+        "access_asset", 
+        "coping_asset", 
+        "vulnerability_asset"
+    ]
 )
 def upload_hdx_asset(context):
-    country = context.partition_key.upper()
-
-    hdx_config_path = _asset_config["hdx_asset"].get("config_path", "")
+    country_code = context.partition_key.upper()
+    hdx_config_path = _asset_config["hdx_asset"].get("config_path", "configs/hdx_config.yaml")
     countries_config = _asset_config["hdx_asset"].get("countries_config", "configs/hdx_countries.yaml")
 
-    context.log.info(f"[{country}] Uploading dataset to HDX")
+    asset_filenames = {
+        "demographics": f"{country_code}_ADM2_demographics.csv",
+        "facilities": f"{country_code}_ADM2_facilities.csv",
+        "flood_exposure": f"{country_code}_ADM2_flood_exposure.csv",
+        "cyclone_exposure": f"{country_code}_ADM2_cyclone_exposure.csv",
+        "rural_population": f"{country_code}_ADM2_rural_population.csv",
+        "access": f"{country_code}_ADM2_access.csv",
+        "coping": f"{country_code}_ADM2_coping.csv",
+        "vulnerability": f"{country_code}_ADM2_vulnerability.csv",
+    }
 
-    url = upload_to_hdx(country, hdx_config_path, countries_config, context.log)
+    file_map = {}
+    base_output_dir = os.path.join("data", country_code, "Output")
 
-    context.log.info(f"[{country}] Upload to HDX complete: {url}")
+    context.log.info(f"Scanning {base_output_dir} for indicator files...")
+
+    for label, filename in asset_filenames.items():
+        # Construct the manual path
+        local_path = os.path.join(base_output_dir, filename)
+        
+        # Check if the file actually exists on the disk
+        if os.path.exists(local_path):
+            file_map[label] = local_path
+            context.log.info(f"Found file for {label}: {filename}")
+        else:
+            context.log.warning(f"File not found for {label}: {filename}. Skipping from upload.")
+    # 2. Call the updated upload function
+    url = smart_upload_to_hdx(
+        country_code=country_code,
+        file_map=file_map, 
+        config_file=hdx_config_path,
+        countries_config=countries_config,
+        context=context
+    )
+
     return url
 
     
