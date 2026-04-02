@@ -5,6 +5,7 @@ import zipfile
 import shutil
 import tempfile
 import geopandas as gpd
+import re
 
 def get_dataset_resources(dataset_id):
     print(f"Fetching dataset metadata for: {dataset_id}")
@@ -35,12 +36,8 @@ def download_file(url, save_path):
                     f.write(chunk)
     print(f"Saved to: {save_path}")
 
-def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code,
-                                  simplify_tolerance=0.0001):
-    """
-    Convert shapefiles to simplified GeoJSON.
-    - simplify_tolerance: higher = more simplified, smaller file
-    """
+
+def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code, simplify_tolerance=0.0001):
     country_code = country_code.upper()
     output_folder = os.path.join(base_output_folder, country_code)
     os.makedirs(output_folder, exist_ok=True)
@@ -49,35 +46,31 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
         for file in files:
             if file.lower().endswith(".shp"):
                 shp_path = os.path.join(root, file)
+                basename = os.path.splitext(file)[0].lower()
+
+                # Robust Regex to find any digit following 'adm', 'admin', or 'admbndp'
+                # This catches: adm0, admin0, admbndp0, gab_adm1_etc
+                match = re.search(r"adm(?:bndp|in)?(\d)", basename)
+                
+                if match:
+                    level_num = match.group(1)
+                    level = f"ADM{level_num}"
+                else:
+                    print(f"Skipping {file} (unknown admin level)")
+                    continue
+
                 try:
                     gdf = gpd.read_file(shp_path)
-                    basename = os.path.splitext(file)[0]
-
-                    # Detect admin level (ADM0–ADM4)
-                    level = None
-                    for i in range(5):
-                        if f"adm{i}" in basename.lower() or f"admin{i}" in basename.lower():
-                            level = f"ADM{i}"
-                            break
-
-                    if not level:
-                        print(f"Skipping {file} (unknown admin level)")
-                        continue
-
-                    # Simplify geometry
+                    # Simplify and save...
                     gdf_simplified = gdf.copy()
                     gdf_simplified["geometry"] = gdf.geometry.simplify(
-                        tolerance=simplify_tolerance,
-                        preserve_topology=True
+                        tolerance=simplify_tolerance, preserve_topology=True
                     )
 
-                    # Write simplified GeoJSON
                     geojson_filename = f"{country_code}_{level}.geojson"
                     geojson_path = os.path.join(output_folder, geojson_filename)
                     gdf_simplified.to_file(geojson_path, driver="GeoJSON")
-
-                    print(f"Converted + simplified {file} → {geojson_path} (tolerance={simplify_tolerance})")
-
+                    print(f"Converted {file} -> {geojson_path}")
                 except Exception as e:
                     print(f"Failed to convert {file}: {e}")
 
