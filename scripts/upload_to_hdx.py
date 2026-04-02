@@ -44,15 +44,45 @@ def get_hdx_country(country_code: str, countries_config_path: str) -> str:
         raise ValueError(
             f"Country code '{country_code}' not found in {countries_config_path}"
         )
+    
+
+def smart_upload_to_hdx(country_code, file_map, config_file, countries_config, context):
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+
+    country_name = get_hdx_country(country_code, countries_config)
+    
+    Configuration.create(
+        hdx_site=config["hdx"]["site"],
+        user_agent="GaiaSmartUploader",
+        hdx_key=config["hdx"]["api_key"],
+    )
+
+    links = []
+    for label, local_path in file_map.items():
+        # local_path is now a string from our os.path.join above
+        fname = os.path.basename(local_path)
+        url = f"https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/{country_code.lower()}/{fname}"
+        links.append((fname, url))
+
+    return create_country_dataset(country_code, country_name, links, config, context)
 
 
-def create_country_dataset(country_code: str, country_name: str, links, config, context: Context):
-    """Create or update a 'Risk Assessment Indicators' dataset in HDX for the country."""
+def create_country_dataset(country_code: str, country_name: str, links, config, context):
+    """
+    Smart Create or Update:
+    - If dataset exists, updates metadata and specific resources.
+    - If links is empty, only updates metadata/notes.
+    - Preserves all your original indicator descriptions.
+    """
+    # 1. Setup Naming
     dataset_name = f"{country_name} - Risk Assessment Indicators"
-    dataset_hdx_country = dataset_name.lower().replace(" ", "-")
+    dataset_hdx_name = dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
 
+    # 2. Check for Cyclone exposure to toggle sections
     include_cyclone = cyclone_files(links)
-
+    
+    # --- Start of your original Dataset Notes ---
     cyclone_section = (
         f"""
 #### **Cyclone Exposure (`{country_code}_ADM2_cyclone_exposure`)**
@@ -86,14 +116,7 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 
 ### **Data Overview**
 
-- **Access to Services (`{country_code}_ADM2_access`)**  
-- **Facilities (`{country_code}_ADM2_facilities`)**  
-- **Coping Capacity (`{country_code}_ADM2_coping`)**  
-- **Demographics (`{country_code}_ADM2_demographics`)**  
-- **Rural Population (`{country_code}_ADM2_rural_population`)**  
-- **Vulnerability (`{country_code}_ADM2_vulnerability`)**  
-- **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**  
-{("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
+- **Access to Services (`{country_code}_ADM2_access`)** - **Facilities (`{country_code}_ADM2_facilities`)** - **Coping Capacity (`{country_code}_ADM2_coping`)** - **Demographics (`{country_code}_ADM2_demographics`)** - **Rural Population (`{country_code}_ADM2_rural_population`)** - **Vulnerability (`{country_code}_ADM2_vulnerability`)** - **Flood Exposure (`{country_code}_ADM2_flood_exposure`)** {("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
 
 <p>&nbsp;</p>
 <p>&nbsp;</p>
@@ -188,73 +211,84 @@ See more at [HeiGIT on HDX](https://data.humdata.org/organization/heidelberg-ins
 
 We are happy to hear about your use-cases — contact us at [communications@heigit.org](mailto:communications@heigit.org)!
 """
+    # --- End of original Dataset Notes ---
 
-    dataset = Dataset()
-    dataset["name"] = dataset_hdx_country
-    dataset["title"] = dataset_name
+    # 3. Smart Dataset Retrieval / Creation
+    dataset = Dataset.read_from_hdx(dataset_hdx_name)
+    
+    if dataset:
+        context.log.info(f"Dataset '{dataset_hdx_name}' already exists. Updating metadata.")
+    else:
+        context.log.info(f"Dataset '{dataset_hdx_name}' not found. Creating a new one.")
+        dataset = Dataset({
+            "name": dataset_hdx_name,
+            "title": dataset_name
+        })
+
+    # 4. Set/Update Static Metadata
     dataset["dataset_type"] = "dataset_series"
-
     dataset["owner_org"] = config["hdx"]["owner_org"]
     dataset["private"] = config["hdx"].get("private", False)
-    dataset.set_expected_update_frequency(
-        config["hdx"].get("data_update_frequency", "Every six months")
-    )
+    dataset.set_expected_update_frequency(config["hdx"].get("data_update_frequency", "Every six months"))
     dataset["license_id"] = "cc-by-sa"
     dataset["dataset_source"] = "Multiple sources"
     dataset["maintainer"] = config["hdx"].get("maintainer", "Valentin Boehmer")
-    dataset["maintainer_email"] = config["hdx"].get(
-        "maintainer_email", "valentin.boehmer@heigit.org"
-    )
-
-    dataset["methodology"] = (
-        "This dataset aggregates multiple risk assessment indicators for the country."
-    )
-
-    dataset["data_series"] = (
-        "Heidelberg Institute for Geoinformation Technology - Risk Assessment Indicators"
-    )
-
+    dataset["maintainer_email"] = config["hdx"].get("maintainer_email", "valentin.boehmer@heigit.org")
+    dataset["methodology"] = "Other"
+    dataset["methodology_other"] = "This dataset aggregates multiple risk assessment indicators for the country."
+    dataset["data_series"] = "Heidelberg Institute for Geoinformation Technology - Risk Assessment Indicators"
+    dataset["subnational"] = "1"
     dataset["notes"] = dataset_notes
 
-    dataset["tags"] = [
-        {"name": "hazards and risk"},
-        {"name": "health facilities"},
-        {"name": "indicators"},
-        {"name": "affected population"},
-        {"name": "demographics"},
-        {"name": "flooding"},
-    ]
-
-    # If cyclone files exist → add cyclone tag
+    # 5. Handle Tags
+    tags = ["hazards and risk", "health facilities", "indicators", "affected population", "demographics", "flooding"]
     if include_cyclone:
-        dataset["tags"].append({"name": "cyclones-hurricanes-typhoons"})
+        tags.append("cyclones-hurricanes-typhoons")
+    dataset.add_tags(tags)
 
-    try:
-        dataset.add_country_location(country_code)
-    except HDXError as e:
-        print(f"Warning: {e}")
-
-    # Set dataset time period: from six months ago to today
+    # 6. Set Time Period & Location
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=182)
+    
+    # Use direct dictionary assignment like your original working script:
     dataset["dataset_date"] = (
         f"[{start_date.strftime('%Y-%m-%dT%H:%M:%S')} TO "
         f"{end_date.strftime('%Y-%m-%dT%H:%M:%S')}]"
     )
 
-    # Add or update resources (with logging)
-    context.info("Uploading the following files to HDX:")
-    for fname, url in links:
-        context.info(f" - {fname} → {url}")
-        resource = {
-            "name": fname,
-            "description": f"{fname} - Risk assessment indicator for {country_name}",
-            "format": os.path.splitext(fname)[1][1:].upper(),
-            "url": url,
-        }
-        dataset.add_update_resource(resource)
+    # Ensure country_code is a clean ISO3 string
+    iso3_code = country_code.strip().upper()
+    
+    try:
+        # This is the "groups" field HDX is looking for
+        dataset.add_country_location(iso3_code)
+        context.log.info(f"Added location: {iso3_code}")
+    except Exception as e:
+        context.log.warning(f"Could not add location {iso3_code}: {e}")
+        # Manual fallback if add_country_location fails
+        dataset['groups'] = [{'name': iso3_code.lower()}]
 
-    dataset.create_in_hdx()
+    # 7. Smart Resource Management
+    if links:
+        context.log.info(f"Uploading/Updating {len(links)} resources to HDX.")
+        for fname, url in links:
+            resource = {
+                "name": fname,
+                "description": f"{fname} - Risk assessment indicator for {country_name}",
+                "format": os.path.splitext(fname)[1][1:].upper(),
+                "url": url,
+            }
+            # add_update_resource will overwrite an existing resource with the same name
+            dataset.add_update_resource(resource)
+    else:
+        context.log.warning("No new resource files provided by assets. Metadata updated, existing files preserved.")
+
+    # 8. Commit to HDX
+    if dataset.get("id"):
+        dataset.update_in_hdx()
+    else:
+        dataset.create_in_hdx()
+
     return dataset.get_hdx_url()
 
 
