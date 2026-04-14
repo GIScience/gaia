@@ -79,8 +79,24 @@ def create_country_dataset(country_code: str, country_name: str, links, config, 
     dataset_name = f"{country_name} - Risk Assessment Indicators"
     dataset_hdx_name = dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
 
-    # 2. Check for Cyclone exposure to toggle sections
-    include_cyclone = cyclone_files(links)
+    # 2. Smart Dataset Retrieval / Creation
+    dataset = Dataset.read_from_hdx(dataset_hdx_name)
+    
+    existing_cyclone = False
+    if dataset:
+        context.log.info(f"Dataset '{dataset_hdx_name}' already exists. Updating metadata.")
+        for res in dataset.get_resources():
+            if res.get("name") and "cyclone" in res["name"].lower():
+                existing_cyclone = True
+    else:
+        context.log.info(f"Dataset '{dataset_hdx_name}' not found. Creating a new one.")
+        dataset = Dataset({
+            "name": dataset_hdx_name,
+            "title": dataset_name
+        })
+
+    # 3. Check for Cyclone exposure to toggle sections
+    include_cyclone = cyclone_files(links) or existing_cyclone
     
     # --- Start of your original Dataset Notes ---
     cyclone_section = (
@@ -116,7 +132,14 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 
 ### **Data Overview**
 
-- **Access to Services (`{country_code}_ADM2_access`)** - **Facilities (`{country_code}_ADM2_facilities`)** - **Coping Capacity (`{country_code}_ADM2_coping`)** - **Demographics (`{country_code}_ADM2_demographics`)** - **Rural Population (`{country_code}_ADM2_rural_population`)** - **Vulnerability (`{country_code}_ADM2_vulnerability`)** - **Flood Exposure (`{country_code}_ADM2_flood_exposure`)** {("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
+- **Access to Services (`{country_code}_ADM2_access`)**  
+- **Facilities (`{country_code}_ADM2_facilities`)**  
+- **Coping Capacity (`{country_code}_ADM2_coping`)**  
+- **Demographics (`{country_code}_ADM2_demographics`)**  
+- **Rural Population (`{country_code}_ADM2_rural_population`)**  
+- **Vulnerability (`{country_code}_ADM2_vulnerability`)**  
+- **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**  
+{("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
 
 <p>&nbsp;</p>
 <p>&nbsp;</p>
@@ -212,18 +235,6 @@ See more at [HeiGIT on HDX](https://data.humdata.org/organization/heidelberg-ins
 We are happy to hear about your use-cases — contact us at [communications@heigit.org](mailto:communications@heigit.org)!
 """
     # --- End of original Dataset Notes ---
-
-    # 3. Smart Dataset Retrieval / Creation
-    dataset = Dataset.read_from_hdx(dataset_hdx_name)
-    
-    if dataset:
-        context.log.info(f"Dataset '{dataset_hdx_name}' already exists. Updating metadata.")
-    else:
-        context.log.info(f"Dataset '{dataset_hdx_name}' not found. Creating a new one.")
-        dataset = Dataset({
-            "name": dataset_hdx_name,
-            "title": dataset_name
-        })
 
     # 4. Set/Update Static Metadata
     dataset["dataset_type"] = "dataset_series"
