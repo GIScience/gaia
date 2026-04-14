@@ -1,6 +1,7 @@
 # secret
 configs/minio_config.yaml
 configs/hdx_config.yaml
+gaia-viz-vue/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
