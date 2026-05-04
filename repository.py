@@ -19,6 +19,7 @@ from assets.workflow_assets import (
     upload_hdx_asset,  
     check_hdx_downloads_asset,
     cleanup_asset,
+    acled_hrp_asset,
 )
 
 
