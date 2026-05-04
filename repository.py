@@ -18,6 +18,7 @@ from assets.workflow_assets import (
     upload_hdx_asset,  
     check_hdx_downloads_asset,
     cleanup_asset,
+    acled_hrp_asset,
 )
 
 
@@ -39,7 +40,8 @@ defs = Definitions(
         upload_viz_minio_asset,
         upload_hdx_asset,
         check_hdx_downloads_asset,
-        cleanup_asset,     
+        cleanup_asset,
+        acled_hrp_asset,
     ],
     jobs=[
         workflow_job,          # job without upload_hdx

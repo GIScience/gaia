@@ -20,3 +20,4 @@ hdx-python-api==6.4.6              # hdx api
 overpass==0.7                      # overpass api
 pyarrow
 tippecanoe
+scikit-image>=0.21.0  

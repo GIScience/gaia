@@ -3,7 +3,7 @@ import yaml
 import argparse
 import sys
 from hdx.api.configuration import Configuration
-from hdx.data.dataset import Dataset, HDXError
+from hdx.data.dataset import Dataset
 from datetime import datetime, timezone, timedelta
 
 class Context:
