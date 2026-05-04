@@ -52,6 +52,7 @@ MAX_MCP_SOURCES = 20000  # Max safe zone pixels to sample for MCP
 
 # Demographic indicators to process (matching WorldPop naming)
 DEMOGRAPHIC_INDICATORS = [
+    "total_pop",
     "children_u5",
     "elderly", 
     "female_pop",

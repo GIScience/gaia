@@ -107,7 +107,7 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
         # Ensure WorldPop files exist
         context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
         indicator_tifs = fetch_worldpop(country_code)
-        indicators = ["female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
+        indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
         tif_map = dict(zip(indicators, indicator_tifs))
 
         # --- load SMOD raster ---
@@ -152,10 +152,9 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
             context.info(f"Processed rural population for {label}")
 
         # --- calculate one overall rural percentage column ---
-        # Use total population (e.g. pop_u15 as proxy, or sum of all groups)
-        total_pop = pd.Series(total_pop_counts["female_pop"]).replace({0: np.nan})
+        total_pop = pd.Series(total_pop_counts["total_pop"]).replace({0: np.nan})
         rural_df["rural_pop_perc"] = (
-            rural_df["female_pop_rural"] / total_pop * 100
+            rural_df["total_pop_rural"] / total_pop * 100
         ).fillna(0).round(2)
 
         # --- finalize ---

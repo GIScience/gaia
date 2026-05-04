@@ -12,6 +12,7 @@ from rasterstats import zonal_stats
 
 # --- UPDATED CONSTANTS ---
 INDICATORS = {
+    "total_pop": {"ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80], "sexes": ["f", "m"]},
     "female_pop": {"ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80], "sexes": ["f"]},
     "children_u5": {"ages": [0, 1], "sexes": ["f", "m"]},
     "female_u5": {"ages": [0, 1], "sexes": ["f"]},
@@ -144,7 +145,7 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
             f"(found: {gdf.columns.tolist()})"
         )
     # 3) Map indicator names to files
-    indicators = ["female_pop","children_u5","female_u5","elderly","pop_u15","female_u15"]
+    indicators = ["total_pop","female_pop","children_u5","female_u5","elderly","pop_u15","female_u15"]
     tif_map = dict(zip(indicators, tifs))
 
     results = pd.DataFrame()

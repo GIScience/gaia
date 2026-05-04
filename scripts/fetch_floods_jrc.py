@@ -286,7 +286,7 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     # Ensure WorldPop files exist
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
-    indicators = ["female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
+    indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
     tif_map = dict(zip(indicators, indicator_tifs))
 
     # Ensure facilities exist
