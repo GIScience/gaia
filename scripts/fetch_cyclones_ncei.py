@@ -52,7 +52,7 @@ IBTRACS_LOCAL_ZIP = os.path.join(DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.li
 # Config
 # -----------------------------
 FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
-POP_INDICATORS = ["female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
+POP_INDICATORS = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
 EXPOSURE_CLASSES = [1, 2, 3]  # cyclone categories
 
 # -----------------------------
