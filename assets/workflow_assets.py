@@ -448,6 +448,7 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
     """
     Generate cyclone exposure CSVs using IBTrACS data and WorldPop/facilities data.
     For each configured admin level, computes exposed populations and facilities.
+    Asset fails if evacuability calculation does not succeed.
     """
     country_code = context.partition_key.upper()
     base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
@@ -457,13 +458,16 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
         raise ValueError("No admin_levels configured in assets_config.yaml")
 
     outputs = []
+    failures = []
 
     for admin_level in admin_levels:
         orig_level = admin_level
         level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
 
         if not level:
-            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
+            msg = f"No boundary found for {country_code} {orig_level} or lower levels"
+            context.log.warning(msg)
+            failures.append(msg)
             continue
 
         if level != orig_level:
@@ -476,23 +480,29 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
 
         id_col = f"{admin_level.upper()}_PCODE"
         if id_col not in gdf.columns:
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: expected ID column '{id_col}' not found"
-            )
+            msg = f"Expected ID column '{id_col}' not found for {country_code} {admin_level}"
+            context.log.warning(msg)
+            failures.append(msg)
             continue
 
-        try:
-            csv_path = calculate_cyclone_exposure(
-                context=context.log,
-                country_code=country_code,
-                admin_level=admin_level,
-            )
-            if csv_path:
-                outputs.append(csv_path)
-            else:
-                context.log.warning(f"No output produced for {country_code} {admin_level}")
-        except Exception as e:
-            context.log.error(f"Error processing {country_code} {admin_level}: {e}")
+        csv_path = calculate_cyclone_exposure(
+            context=context.log,
+            country_code=country_code,
+            admin_level=admin_level,
+        )
+        if csv_path:
+            outputs.append(csv_path)
+        else:
+            msg = f"No output produced for {country_code} {admin_level}"
+            context.log.warning(msg)
+            failures.append(msg)
+
+    if not outputs:
+        failure_msg = f"Asset failed for {country_code}: " + "; ".join(failures) if failures else "No outputs produced"
+        raise ValueError(failure_msg)
+
+    if failures:
+        context.log.warning(f"Some admin levels failed: {'; '.join(failures)}")
 
     return outputs
 
