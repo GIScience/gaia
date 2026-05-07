@@ -253,6 +253,9 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     dataset["data_series"] = "Heidelberg Institute for Geoinformation Technology - Risk Assessment Indicators"
     dataset["subnational"] = "1"
     dataset["notes"] = dataset_notes
+    dataset.set_custom_viz(
+        f"https://giscience.github.io/humanitarian_pages/gaia-dashboard/#/?country={country_code}&disaster=risk_flood"
+    )
 
     # 5. Handle Tags
     tags = ["hazards and risk", "health facilities", "indicators", "affected population", "demographics", "flooding"]
