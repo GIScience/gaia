@@ -5,7 +5,7 @@ hdx_asset:
   config_path: configs/hdx_config.yaml
 
 facilities_asset:
-  api: overpass # can be ohsome-api, overpass or ohsome-paquet
+  api: ohsome-api # can be ohsome-api, overpass or ohsome-paquet
 
 setup:
   admin_levels: ['ADM2']
@@ -18,3 +18,6 @@ ndvi_asset:
 crops_asset:
   years: [2024, 2025] # years to compare for change detection
 
+acled_asset:
+  config_path: configs/acled_config.yaml
+  year: 2021
