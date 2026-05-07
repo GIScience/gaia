@@ -105,8 +105,10 @@ def create_country_dataset(country_code: str, country_name: str, links, config, 
 Represents the exposure of populations and facilities to cyclones, based on historical cyclone tracks and intensity categories (1–3). Vulnerable populations and facilities are quantified per admin unit.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
-- **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1–3
+- **kt34_total_pop_cat1 / cat2 / cat3**, **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1–3
 - **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
+- **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time (minutes) from at-risk areas to safe zones
+- **kt34_pixels_at_risk** – Number of pixels at risk from cyclone exposure
 
 Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stewardship](https://www.ncei.noaa.gov/products/international-best-track-archive-for-climate-stewardship-ibtracs)
 
@@ -181,6 +183,7 @@ Combines **Access to Services** and **Facilities** data to represent a district�
 Shows the population composition by age and gender.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
+- **total_pop** – Total population
 - **female_pop** – Total female population
 - **children_u5** – Population under 5 years old
 - **female_u5** – Female population under 5 years old
@@ -197,7 +200,7 @@ Same demographic breakdown as above, but limited to rural populations. Rural are
 typically characterized by lower population density, agricultural or natural land use, and limited infrastructure compared to urban centers.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
-- **female_pop_rural**, **children_u5_rural**, **female_u5_rural**, **elderly_rural**, **pop_u15_rural**, **female_u15_rural** – Rural demographic counts
+- **total_pop_rural**, **female_pop_rural**, **children_u5_rural**, **female_u5_rural**, **elderly_rural**, **pop_u15_rural**, **female_u15_rural** – Rural demographic counts
 - **rural_pop_perc** – Percentage of total population living in rural areas
 
 Data Source: [Global Human Settlement Layer (GHSL)](https://human-settlement.emergency.copernicus.eu/datasets.php)
@@ -213,7 +216,7 @@ Combines **Demographics** and **Rural Population** indicators.
 Shows population and facility exposure to flooding at 30 cm depth for multiple return periods.
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
-- **female_pop_30cm**, **children_u5_30cm**, **female_u5_30cm**, **elderly_30cm**, **pop_u15_30cm**, **female_u15_30cm** – Exposed population by group
+- **total_pop_30cm**, **female_pop_30cm**, **children_u5_30cm**, **female_u5_30cm**, **elderly_30cm**, **pop_u15_30cm**, **female_u15_30cm** – Exposed population by group
 - **education_30cm_pct / count**, **hospitals_30cm_pct / count**, **primary_healthcare_30cm_pct / count** – Facility exposure (percentage and count)
 
 Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/collection/id-0054)
