@@ -14,15 +14,10 @@ import geopandas as gpd
 import numpy as np
 import rasterio
 from rasterio.features import rasterize
-from rasterio.windows import from_bounds, Window
-from rasterio.warp import reproject, transform_bounds
 from rasterstats import zonal_stats
 import pandas as pd
 from shapely.geometry import mapping
 import yaml
-import tempfile
-from skimage.graph import MCP_Geometric
-from rasterio.enums import Resampling
 from scripts.fetch_worldpop import fetch_worldpop
 from scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
 
@@ -59,115 +54,6 @@ IBTRACS_LOCAL_ZIP = os.path.join(DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.li
 FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
 POP_INDICATORS = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
 EXPOSURE_CLASSES = [1, 2, 3]  # cyclone categories
-
-FRICTION_COG_URL = "https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/2020_motorized_friction_surface_cog.tif"
-MAX_PIXELS_FOR_MCP = 10_000_000
-TARGET_RESOLUTION_M = 500
-MAX_MCP_SOURCES = 20000
-
-
-# -----------------------------
-# Evacuability helper functions
-# -----------------------------
-def get_pixel_size_meters(transform, crs):
-    pixel_x = abs(transform.a)
-    pixel_y = abs(transform.e)
-    if crs.is_geographic:
-        meters_per_degree = 111000
-        pixel_size_m = ((pixel_x + pixel_y) / 2) * meters_per_degree
-    else:
-        pixel_size_m = (pixel_x + pixel_y) / 2
-    return pixel_size_m
-
-
-def downsample_array(arr, scale_factor, method='mean'):
-    from scipy.ndimage import zoom
-    if scale_factor <= 1:
-        return arr
-    scale_factor = int(round(scale_factor))
-    if method == 'sum':
-        h, w = arr.shape
-        new_h = (h // scale_factor) * scale_factor
-        new_w = (w // scale_factor) * scale_factor
-        trimmed = arr[:new_h, :new_w]
-        reshaped = trimmed.reshape(new_h // scale_factor, scale_factor, new_w // scale_factor, scale_factor)
-        result = np.nansum(reshaped, axis=(1, 3))
-        return result.astype(arr.dtype)
-    elif method == 'mean':
-        return zoom(arr, 1 / scale_factor, order=1)
-    elif method == 'max':
-        return zoom(arr.astype(float), 1 / scale_factor, order=0) > 0.5
-    else:
-        return zoom(arr, 1 / scale_factor, order=0)
-
-
-def upsample_array(arr, target_shape, method='bilinear'):
-    from scipy.ndimage import zoom
-    scale_y = target_shape[0] / arr.shape[0]
-    scale_x = target_shape[1] / arr.shape[1]
-    order = 1 if method == 'bilinear' else 0
-    return zoom(arr, (scale_y, scale_x), order=order)
-
-
-def fetch_friction_window(bounds, target_crs, target_transform, target_shape,
-                          friction_url=FRICTION_COG_URL):
-    bounds_l, bounds_b, bounds_r, bounds_t = bounds
-    with rasterio.open(friction_url) as src:
-        friction_crs = src.crs
-        friction_nodata = src.nodata
-        if target_crs != friction_crs:
-            src_bounds = transform_bounds(target_crs, friction_crs, bounds_l, bounds_b, bounds_r, bounds_t)
-        else:
-            src_bounds = (bounds_l, bounds_b, bounds_r, bounds_t)
-        window = from_bounds(*src_bounds, src.transform)
-        col_off = max(0, int(window.col_off) - 5)
-        row_off = max(0, int(window.row_off) - 5)
-        width = min(src.width - col_off, int(window.width) + 10)
-        height = min(src.height - row_off, int(window.height) + 10)
-        window = Window(col_off, row_off, width, height)
-        friction_raw = src.read(1, window=window).astype(np.float32)
-        window_transform = src.window_transform(window)
-
-    friction_aligned = np.zeros(target_shape, dtype=np.float32)
-    reproject(
-        source=friction_raw,
-        destination=friction_aligned,
-        src_transform=window_transform,
-        src_crs=friction_crs,
-        src_nodata=friction_nodata,
-        dst_transform=target_transform,
-        dst_crs=target_crs,
-        dst_nodata=np.nan,
-        resampling=Resampling.bilinear,
-    )
-    return friction_aligned
-
-
-def create_cost_surface(friction_arr, cyclone_arr):
-    valid_cyclone = ~np.isnan(cyclone_arr)
-    at_risk_mask = valid_cyclone & (cyclone_arr >= 1)
-    safe_mask = valid_cyclone & (cyclone_arr == 0)
-    cost_arr = friction_arr.copy()
-    cost_arr[np.isnan(cost_arr)] = 1e6
-    cost_arr[cost_arr <= 0] = 1e6
-    return cost_arr, safe_mask, at_risk_mask
-
-
-def calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_m):
-    safe_indices = np.argwhere(safe_mask)
-    if len(safe_indices) == 0:
-        return np.full(cost_arr.shape, np.nan)
-    cost_scaled = cost_arr * pixel_size_m
-    mcp = MCP_Geometric(cost_scaled, fully_connected=True)
-    starts = [tuple(idx) for idx in safe_indices]
-    if len(starts) > MAX_MCP_SOURCES:
-        rng = np.random.default_rng(42)
-        indices = rng.choice(len(starts), MAX_MCP_SOURCES, replace=False)
-        starts = [starts[i] for i in indices]
-    cumulative_cost, traceback = mcp.find_costs(starts)
-    travel_time = cumulative_cost.astype(np.float32)
-    travel_time[travel_time >= 1e9] = np.nan
-    return travel_time
 
 # -----------------------------
 # Step 1: IBTrACS download & extract
@@ -327,89 +213,6 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
     df = pd.DataFrame({f"{admin_level}_PCODE": gdf_admin[f"{admin_level}_PCODE"]})
     df["ADM_PCODE"] = df[f"{admin_level}_PCODE"]
 
-    # ---- Evacuatability: travel time to safe zones ----
-    context.info("Calculating evacuatability for cyclone exposure...")
-
-    friction_arr = fetch_friction_window(
-        bounds=(cyclone_bounds.left, cyclone_bounds.bottom, cyclone_bounds.right, cyclone_bounds.top),
-        target_crs=raster_crs,
-        target_transform=cyclone_transform,
-        target_shape=cyclone_shape,
-    )
-
-    pixel_size_m = get_pixel_size_meters(cyclone_transform, raster_crs)
-    total_pixels = cyclone_raster.size
-    original_shape = cyclone_raster.shape
-    scale_factor = 1
-
-    if total_pixels > MAX_PIXELS_FOR_MCP:
-        scale_by_pixels = np.sqrt(total_pixels / MAX_PIXELS_FOR_MCP)
-        scale_by_resolution = TARGET_RESOLUTION_M / pixel_size_m if pixel_size_m < TARGET_RESOLUTION_M else 1
-        scale_factor = max(scale_by_pixels, scale_by_resolution)
-        cyclone_raster_ds = downsample_array(cyclone_raster, scale_factor, method='max')
-        friction_arr_ds = downsample_array(friction_arr, scale_factor, method='mean')
-        pixel_size_m_ds = pixel_size_m * scale_factor
-    else:
-        cyclone_raster_ds = cyclone_raster
-        friction_arr_ds = friction_arr
-        pixel_size_m_ds = pixel_size_m
-
-    cost_arr, safe_mask, at_risk_mask_ds = create_cost_surface(friction_arr_ds, cyclone_raster_ds)
-
-    if at_risk_mask_ds.sum() == 0:
-        raise ValueError("No at-risk areas found for evacuatability calculation - cannot complete asset")
-
-    travel_time_ds = calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_m_ds)
-
-    if scale_factor > 1:
-        travel_time = upsample_array(travel_time_ds, original_shape)
-        at_risk_mask = create_cost_surface(friction_arr, cyclone_raster)[2]
-    else:
-        travel_time = travel_time_ds
-        at_risk_mask = at_risk_mask_ds
-
-    travel_time_at_risk = travel_time.copy()
-    travel_time_at_risk[~at_risk_mask] = np.nan
-
-    gdf_tt = gdf_admin.to_crs(raster_crs) if gdf_admin.crs != raster_crs else gdf_admin
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tt_path = os.path.join(tmpdir, "travel_time.tif")
-        with rasterio.open(
-            tt_path, 'w',
-            driver='GTiff',
-            height=travel_time_at_risk.shape[0],
-            width=travel_time_at_risk.shape[1],
-            count=1,
-            dtype=np.float32,
-            crs=raster_crs,
-            transform=cyclone_transform,
-            nodata=np.nan,
-        ) as dst:
-            dst.write(travel_time_at_risk, 1)
-
-        tt_stats = zonal_stats(
-            gdf_tt, tt_path,
-            stats=['mean', 'max', 'median', 'count'],
-            nodata=np.nan,
-        )
-
-        df[f"kt34_evac_time_minutes_mean"] = [round(s['mean'], 1) if s.get('mean') else None for s in tt_stats]
-        df[f"kt34_evac_time_minutes_max"] = [round(s['max'], 1) if s.get('max') else None for s in tt_stats]
-        df[f"kt34_evac_time_minutes_median"] = [round(s['median'], 1) if s.get('median') else None for s in tt_stats]
-        df[f"kt34_pixels_at_risk"] = [s['count'] if s.get('count') else 0 for s in tt_stats]
-
-    # Validate evacuability columns have valid data (not all None)
-    evac_cols = ['kt34_evac_time_minutes_mean', 'kt34_evac_time_minutes_max',
-                 'kt34_evac_time_minutes_median', 'kt34_pixels_at_risk']
-    for col in evac_cols:
-        if col not in df.columns:
-            raise ValueError(f"Missing required evacuability column: {col}")
-        if df[col].isna().all() and col != 'kt34_pixels_at_risk':
-            raise ValueError(f"Evacuability column {col} has no valid data")
-
-    context.info("Processed evacuatability for cyclone exposure")
-
     geojsons_map = {}
     for cat in FACILITY_CATEGORIES:
         geojsons_map[cat] = base_path / f"Temporary/{country_code}_{cat}_raw.geojson"
@@ -468,21 +271,8 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
                 axis=1,
             )
 
-    # Round all numeric columns to 0 decimal places (except evacuability columns with NaN)
-    evac_time_cols = [c for c in df.columns if 'kt34_evac_time' in c]
-    numeric_cols = [c for c in df.select_dtypes(include=["float", "int"]).columns if c not in evac_time_cols]
+    numeric_cols = [c for c in df.select_dtypes(include=["float", "int"]).columns]
     df[numeric_cols] = df[numeric_cols].fillna(0).round(0).astype(int)
-
-    # Final validation: ensure all required columns exist before saving
-    required_cols = ['kt34_evac_time_minutes_mean', 'kt34_evac_time_minutes_max',
-                     'kt34_evac_time_minutes_median', 'kt34_pixels_at_risk']
-    missing_cols = [c for c in required_cols if c not in df.columns]
-    if missing_cols:
-        raise ValueError(f"Asset failed: missing required columns: {missing_cols}")
-
-    # Ensure at least some rows have valid evacuability data
-    if df['kt34_pixels_at_risk'].sum() == 0:
-        raise ValueError("Asset failed: no pixels at risk found - evacuability calculation produced no valid data")
 
     output_dir = base_path / "Output"
     output_dir.mkdir(parents=True, exist_ok=True)

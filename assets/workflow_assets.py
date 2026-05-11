@@ -14,6 +14,7 @@ from scripts.fetch_facilities_ohsome_overpass import fetch_ohsome, fetch_overpas
 from scripts.fetch_ruralness_ghsl import compute_rural_population
 from scripts.fetch_access_minio import compute_access_population
 from scripts.fetch_cyclones_ncei import calculate_cyclone_exposure
+from scripts.calculate_evacuatability import compute_evacuability_csv
 from typing import List
 import numpy as np
 import requests
@@ -448,7 +449,6 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
     """
     Generate cyclone exposure CSVs using IBTrACS data and WorldPop/facilities data.
     For each configured admin level, computes exposed populations and facilities.
-    Asset fails if evacuability calculation does not succeed.
     """
     country_code = context.partition_key.upper()
     base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
@@ -493,16 +493,63 @@ def exposure_cyclone_asset(context, boundary_asset: str) -> list[str]:
         if csv_path:
             outputs.append(csv_path)
         else:
-            msg = f"No output produced for {country_code} {admin_level}"
-            context.log.warning(msg)
-            failures.append(msg)
+            # calculate_cyclone_exposure returns None only when there are
+            # no cyclone tracks near the country or no buffers intersect
+            # the country boundary — this is not an error, just a data gap.
+            context.log.info(
+                f"No cyclone data for {country_code} {admin_level} — "
+                "no tracks intersect the country. Skipping."
+            )
 
-    if not outputs:
-        failure_msg = f"Asset failed for {country_code}: " + "; ".join(failures) if failures else "No outputs produced"
+    if not outputs and failures:
+        failure_msg = f"Asset failed for {country_code}: " + "; ".join(failures)
         raise ValueError(failure_msg)
 
     if failures:
         context.log.warning(f"Some admin levels failed: {'; '.join(failures)}")
+
+    return outputs
+
+
+@asset(
+    deps=["exposure_flood_asset", "exposure_cyclone_asset"],
+    partitions_def=country_partitions,
+)
+def evacuability_asset(context) -> list[str]:
+    """
+    Compute evacuability (travel time to safe zones) for flood and cyclone exposure.
+    Reads the hazard rasters produced by exposure_flood_asset and exposure_cyclone_asset,
+    calculates MCP-based travel times, and writes a standalone CSV with evacuability
+    columns.
+
+    Output: data/{country_code}/Output/{country_code}_{admin_level}_evacuability.csv
+
+    Returns a list of paths to the evacuability CSVs.
+    """
+    country_code = context.partition_key.upper()
+    admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
+    rps = _asset_config.get("setup", {}).get("rps", ALLOWED_RPS)
+
+    if not admin_levels:
+        raise ValueError("No admin_levels configured in assets_config.yaml")
+
+    outputs = []
+
+    for admin_level in admin_levels:
+        csv_path = compute_evacuability_csv(
+            context=context.log,
+            country_code=country_code,
+            admin_level=admin_level,
+            rps=rps,
+        )
+        if csv_path:
+            outputs.append(csv_path)
+            context.log.info(f"[{country_code}] Evacuability CSV produced for {admin_level}: {csv_path}")
+        else:
+            context.log.warning(f"[{country_code}] Evacuability CSV skipped for {admin_level}")
+
+    if not outputs:
+        context.log.warning(f"[{country_code}] No evacuability outputs produced")
 
     return outputs
 
@@ -629,19 +676,26 @@ def access_asset(context, boundary_asset: str) -> list[str]:
     return outputs
 
 @asset(
-    deps=["access_asset", "facilities_asset"],
+    deps=["access_asset", "facilities_asset", "evacuability_asset"],
     partitions_def=country_partitions,
 )
-def coping_asset(context, access_asset: List[str], facilities_asset: List[str]) -> list[str]:
+def coping_asset(context, access_asset: List[str], facilities_asset: List[str],
+                  evacuability_asset: List[str]) -> list[str]:
     """
-    Combine accessibility and facilities CSVs into a single coping dataset.
-    Joins on the ADM*_PCODE column per admin level.
+    Combine accessibility, facilities, and evacuability CSVs into a single
+    coping dataset. Joins on the ADM*_PCODE column per admin level.
     Produces one coping CSV per admin level in Output/.
     """
     country_code = context.partition_key.upper()
     outputs = []
 
-    for access_csv, facilities_csv in zip(access_asset, facilities_asset):
+    # Pair up by index — all three asset outputs are ordered by admin level
+    for i, access_csv in enumerate(access_asset):
+        if i >= len(facilities_asset):
+            break
+        facilities_csv = facilities_asset[i]
+        evac_csv = evacuability_asset[i] if i < len(evacuability_asset) else None
+
         if not os.path.exists(access_csv) or not os.path.exists(facilities_csv):
             context.log.warning(
                 f"Skipping merge for {country_code}: missing files {access_csv}, {facilities_csv}"
@@ -661,16 +715,27 @@ def coping_asset(context, access_asset: List[str], facilities_asset: List[str]) 
 
             merged = pd.merge(df_access, df_facilities, on=id_col, how="left")
 
+            # Merge evacuability CSV if available
+            if evac_csv and os.path.exists(evac_csv):
+                df_evac = pd.read_csv(evac_csv)
+                if id_col in df_evac.columns:
+                    # Only merge non-ID columns to avoid collisions
+                    evac_cols = [c for c in df_evac.columns if c != id_col]
+                    if evac_cols:
+                        merged = pd.merge(merged, df_evac[[id_col] + evac_cols], on=id_col, how="left")
+                        context.log.info(f"[{country_code}] Merged evacuability data from {evac_csv}")
+                else:
+                    context.log.warning(f"[{country_code}] Evacuability CSV missing ID column '{id_col}', skipping")
+
             # --- keep only one ADM_PCODE column ---
             adm_cols = [c for c in merged.columns if c.startswith("ADM") and c.endswith("_PCODE")]
             if "ADM_PCODE_x" in merged.columns or "ADM_PCODE_y" in merged.columns:
                 merged["ADM_PCODE"] = merged["ADM_PCODE_x"].combine_first(merged["ADM_PCODE_y"])
                 merged.drop(columns=[c for c in ["ADM_PCODE_x", "ADM_PCODE_y"] if c in merged.columns], inplace=True)
             elif "ADM_PCODE" in merged.columns and adm_cols.count("ADM_PCODE") > 1:
-                # In case of duplicate ADM_PCODE columns from merge quirks
                 merged = merged.loc[:, ~merged.columns.duplicated()]
 
-            admin_level = id_col.split("_")[0]  # e.g., ADM2
+            admin_level = id_col.split("_")[0]
             output_dir = Path("data") / country_code / "Output"
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -678,10 +743,10 @@ def coping_asset(context, access_asset: List[str], facilities_asset: List[str]) 
             merged.to_csv(output_path, index=False)
             outputs.append(str(output_path))
 
-            context.log.info(f"[{country_code}] Wrote coping CSV: {output_path}")
+            context.log.info(f"[{country_code}] Wrote coping CSV: {output_path} ({len(merged.columns)} cols)")
 
         except Exception as e:
-            context.log.warning(f"Failed to merge {access_csv} and {facilities_csv}: {e}")
+            context.log.warning(f"Failed to merge for {country_code}: {e}")
 
     if not outputs:
         context.log.warning(f"No coping outputs created for {country_code}")
@@ -1186,7 +1251,7 @@ def upload_viz_minio_asset(context):
 
      
 @asset(
-    deps=["demographics_asset", "facilities_asset", "coping_asset", "exposure_flood_asset", "exposure_cyclone_asset", "vulnerability_asset"],
+    deps=["demographics_asset", "facilities_asset", "coping_asset", "exposure_flood_asset", "exposure_cyclone_asset", "evacuability_asset", "vulnerability_asset"],
     partitions_def=multi_partitions,
 )
 def upload_minio_asset(context):
@@ -1217,6 +1282,7 @@ def upload_minio_asset(context):
         "facilities_asset", 
         "exposure_flood_asset", 
         "exposure_cyclone_asset", 
+        "evacuability_asset", 
         "rural_asset", 
         "access_asset", 
         "coping_asset", 
