@@ -36,12 +36,6 @@ except KeyError:
 
 THRESH_SUFFIX = f"{int(FLOOD_THRESHOLD*100)}cm"
 
-FRICTION_COG_URL = "https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/2020_motorized_friction_surface_cog.tif"
-MAX_PIXELS_FOR_MCP = 10_000_000
-TARGET_RESOLUTION_M = 500
-MAX_MCP_SOURCES = 20000
-
-
 def parse_listing(rp):
     url = BASE_URL_TEMPLATE.format(rp=f"RP{rp}")
     r = requests.get(url)
@@ -161,110 +155,6 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
     return clipped_path
 
 
-def get_pixel_size_meters(transform, crs):
-    pixel_x = abs(transform.a)
-    pixel_y = abs(transform.e)
-    if crs.is_geographic:
-        meters_per_degree = 111000
-        pixel_size_m = ((pixel_x + pixel_y) / 2) * meters_per_degree
-    else:
-        pixel_size_m = (pixel_x + pixel_y) / 2
-    return pixel_size_m
-
-
-def downsample_array(arr, scale_factor, method='mean'):
-    from scipy.ndimage import zoom
-    if scale_factor <= 1:
-        return arr
-    scale_factor = int(round(scale_factor))
-    if method == 'sum':
-        h, w = arr.shape
-        new_h = (h // scale_factor) * scale_factor
-        new_w = (w // scale_factor) * scale_factor
-        trimmed = arr[:new_h, :new_w]
-        reshaped = trimmed.reshape(new_h // scale_factor, scale_factor, new_w // scale_factor, scale_factor)
-        result = np.nansum(reshaped, axis=(1, 3))
-        return result.astype(arr.dtype)
-    elif method == 'mean':
-        return zoom(arr, 1 / scale_factor, order=1)
-    elif method == 'max':
-        return zoom(arr.astype(float), 1 / scale_factor, order=0) > 0.5
-    else:
-        return zoom(arr, 1 / scale_factor, order=0)
-
-
-def upsample_array(arr, target_shape, method='bilinear'):
-    from scipy.ndimage import zoom
-    scale_y = target_shape[0] / arr.shape[0]
-    scale_x = target_shape[1] / arr.shape[1]
-    order = 1 if method == 'bilinear' else 0
-    return zoom(arr, (scale_y, scale_x), order=order)
-
-
-def fetch_friction_window(bounds, target_crs, target_transform, target_shape,
-                          friction_url=FRICTION_COG_URL):
-    bounds_l, bounds_b, bounds_r, bounds_t = bounds
-    with rasterio.open(friction_url) as src:
-        friction_crs = src.crs
-        friction_nodata = src.nodata
-        if target_crs != friction_crs:
-            from rasterio.warp import transform_bounds
-            src_bounds = transform_bounds(target_crs, friction_crs, bounds_l, bounds_b, bounds_r, bounds_t)
-        else:
-            src_bounds = (bounds_l, bounds_b, bounds_r, bounds_t)
-        window = from_bounds(*src_bounds, src.transform)
-        col_off = max(0, int(window.col_off) - 5)
-        row_off = max(0, int(window.row_off) - 5)
-        width = min(src.width - col_off, int(window.width) + 10)
-        height = min(src.height - row_off, int(window.height) + 10)
-        window = Window(col_off, row_off, width, height)
-        friction_raw = src.read(1, window=window).astype(np.float32)
-        window_transform = src.window_transform(window)
-
-    friction_aligned = np.zeros(target_shape, dtype=np.float32)
-    reproject(
-        source=friction_raw,
-        destination=friction_aligned,
-        src_transform=window_transform,
-        src_crs=friction_crs,
-        src_nodata=friction_nodata,
-        dst_transform=target_transform,
-        dst_crs=target_crs,
-        dst_nodata=np.nan,
-        resampling=Resampling.bilinear,
-    )
-    return friction_aligned
-
-
-def create_cost_surface(friction_arr, flood_arr, flood_threshold=FLOOD_THRESHOLD):
-    valid_flood = ~np.isnan(flood_arr)
-    at_risk_mask = valid_flood & (flood_arr > flood_threshold)
-    safe_mask = valid_flood & (flood_arr <= flood_threshold)
-    no_flood_data = np.isnan(flood_arr) | (flood_arr == 0)
-    safe_mask = safe_mask | no_flood_data
-    cost_arr = friction_arr.copy()
-    cost_arr[np.isnan(cost_arr)] = 1e6
-    cost_arr[cost_arr <= 0] = 1e6
-    return cost_arr, safe_mask, at_risk_mask
-
-
-def calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_m):
-    safe_indices = np.argwhere(safe_mask)
-    if len(safe_indices) == 0:
-        return np.full(cost_arr.shape, np.nan)
-    cost_scaled = cost_arr * pixel_size_m
-    mcp = MCP_Geometric(cost_scaled, fully_connected=True)
-    starts = [tuple(idx) for idx in safe_indices]
-    if len(starts) > MAX_MCP_SOURCES:
-        rng = np.random.default_rng(42)
-        indices = rng.choice(len(starts), MAX_MCP_SOURCES, replace=False)
-        starts = [starts[i] for i in indices]
-    cumulative_cost, traceback = mcp.find_costs(starts)
-    travel_time = cumulative_cost.astype(np.float32)
-    travel_time[travel_time >= 1e9] = np.nan
-    return travel_time
-
-
 def process_flood_impact(context, country_code, rps, gdf, admin_level, output_dir):
     """
     Process flooded population, crops, and facilities for all RPs of a given
@@ -344,11 +234,6 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
             f"RP{rp}_{cat}_{suffix}_pct" for cat in facility_categories for suffix in [THRESH_SUFFIX]
         ] + [
             f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in THRESH_SUFFIX
-        ] + [
-            f"RP{rp}_evac_time_minutes_mean",
-            f"RP{rp}_evac_time_minutes_max",
-            f"RP{rp}_evac_time_minutes_median",
-            f"RP{rp}_pixels_at_risk",
         ]
         if all(col in final_df.columns for col in expected_cols):
             context.info(f"RP{rp} already processed, skipping...")
@@ -473,95 +358,6 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
             rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"].fillna(0).astype(int)
 
             context.info(f"Processed flooded facilities for {category} >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
-
-        # ---- Evacuatability: travel time to safe zones ----
-        context.info(f"Calculating evacuatability for RP{rp}...")
-
-        with rasterio.open(clipped_path) as src:
-            flood_arr = src.read(1).astype(np.float32)
-            flood_transform = src.transform
-            flood_crs = src.crs
-            flood_bounds = src.bounds
-            flood_shape = flood_arr.shape
-            flood_nodata = src.nodata
-
-        if flood_nodata is not None:
-            flood_arr[flood_arr == flood_nodata] = np.nan
-
-        friction_arr = fetch_friction_window(
-            bounds=(flood_bounds.left, flood_bounds.bottom, flood_bounds.right, flood_bounds.top),
-            target_crs=flood_crs,
-            target_transform=flood_transform,
-            target_shape=flood_shape,
-        )
-
-        pixel_size_m = get_pixel_size_meters(flood_transform, flood_crs)
-        total_pixels = flood_arr.size
-        original_shape = flood_arr.shape
-        scale_factor = 1
-
-        if total_pixels > MAX_PIXELS_FOR_MCP:
-            scale_by_pixels = np.sqrt(total_pixels / MAX_PIXELS_FOR_MCP)
-            scale_by_resolution = TARGET_RESOLUTION_M / pixel_size_m if pixel_size_m < TARGET_RESOLUTION_M else 1
-            scale_factor = max(scale_by_pixels, scale_by_resolution)
-            flood_arr_ds = downsample_array(flood_arr, scale_factor, method='mean')
-            friction_arr_ds = downsample_array(friction_arr, scale_factor, method='mean')
-            pixel_size_m_ds = pixel_size_m * scale_factor
-        else:
-            flood_arr_ds = flood_arr
-            friction_arr_ds = friction_arr
-            pixel_size_m_ds = pixel_size_m
-
-        cost_arr, safe_mask, at_risk_mask_ds = create_cost_surface(friction_arr_ds, flood_arr_ds, FLOOD_THRESHOLD)
-
-        if at_risk_mask_ds.sum() == 0:
-            context.info("  No at-risk areas found for evacuatability")
-            rp_df[f"RP{rp}_evac_time_minutes_mean"] = None
-            rp_df[f"RP{rp}_evac_time_minutes_max"] = None
-            rp_df[f"RP{rp}_evac_time_minutes_median"] = None
-            rp_df[f"RP{rp}_pixels_at_risk"] = 0
-        else:
-            travel_time_ds = calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_m_ds)
-
-            if scale_factor > 1:
-                travel_time = upsample_array(travel_time_ds, original_shape)
-                at_risk_mask = create_cost_surface(friction_arr, flood_arr, FLOOD_THRESHOLD)[2]
-            else:
-                travel_time = travel_time_ds
-                at_risk_mask = at_risk_mask_ds
-
-            travel_time_at_risk = travel_time.copy()
-            travel_time_at_risk[~at_risk_mask] = np.nan
-
-            gdf_tt = gdf.to_crs(flood_crs) if gdf.crs != flood_crs else gdf
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tt_path = os.path.join(tmpdir, "travel_time.tif")
-                with rasterio.open(
-                    tt_path, 'w',
-                    driver='GTiff',
-                    height=travel_time_at_risk.shape[0],
-                    width=travel_time_at_risk.shape[1],
-                    count=1,
-                    dtype=np.float32,
-                    crs=flood_crs,
-                    transform=flood_transform,
-                    nodata=np.nan,
-                ) as dst:
-                    dst.write(travel_time_at_risk, 1)
-
-                tt_stats = zonal_stats(
-                    gdf_tt, tt_path,
-                    stats=['mean', 'max', 'median', 'count'],
-                    nodata=np.nan,
-                )
-
-            rp_df[f"RP{rp}_evac_time_minutes_mean"] = [round(s['mean'], 1) if s.get('mean') else None for s in tt_stats]
-            rp_df[f"RP{rp}_evac_time_minutes_max"] = [round(s['max'], 1) if s.get('max') else None for s in tt_stats]
-            rp_df[f"RP{rp}_evac_time_minutes_median"] = [round(s['median'], 1) if s.get('median') else None for s in tt_stats]
-            rp_df[f"RP{rp}_pixels_at_risk"] = [s['count'] if s.get('count') else 0 for s in tt_stats]
-
-        context.info(f"Processed evacuatability for RP{rp}")
 
         existing_cols = set(final_df.columns)
         rp_df = rp_df[[c for c in rp_df.columns if c not in existing_cols or c == f"{admin_level}_PCODE"]]
