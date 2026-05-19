@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 import argparse
 import requests
 import geopandas as gpd
@@ -35,6 +36,7 @@ except KeyError:
     raise KeyError("Missing 'setup.flood_threshold' in assets_config.yaml")
 
 THRESH_SUFFIX = f"{int(FLOOD_THRESHOLD*100)}cm"
+
 
 def parse_listing(rp):
     url = BASE_URL_TEMPLATE.format(rp=f"RP{rp}")
@@ -233,7 +235,13 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         ] + [
             f"RP{rp}_{cat}_{suffix}_pct" for cat in facility_categories for suffix in [THRESH_SUFFIX]
         ] + [
-            f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in THRESH_SUFFIX
+            f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in [THRESH_SUFFIX]
+        ] + [
+            f"RP{rp}_crops_{suffix}_km2" for suffix in [THRESH_SUFFIX]
+        ] + [
+            f"RP{rp}_crops_{suffix}_areapct" for suffix in [THRESH_SUFFIX]
+        ] + [
+            f"RP{rp}_crops_{suffix}_croppct" for suffix in [THRESH_SUFFIX]
         ]
         if all(col in final_df.columns for col in expected_cols):
             context.info(f"RP{rp} already processed, skipping...")
@@ -359,25 +367,15 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
 
             context.info(f"Processed flooded facilities for {category} >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
 
-        existing_cols = set(final_df.columns)
-        rp_df = rp_df[[c for c in rp_df.columns if c not in existing_cols or c == f"{admin_level}_PCODE"]]
         final_df = final_df.merge(rp_df, on=f"{admin_level}_PCODE", how="left")
         context.info(f"Processed RP{rp}")
 
-    evac_time_cols = [c for c in final_df.columns if 'evac_time' in c]
-    numeric_cols = [c for c in final_df.select_dtypes(include=["float", "int"]).columns if c not in evac_time_cols]
-    final_df[numeric_cols] = final_df[numeric_cols].fillna(0).round(0).astype(int)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Add ADM_PCODE duplicate for schema consistency
-    admin_col = f"{admin_level}_PCODE"
-    if "ADM_PCODE" not in final_df.columns and admin_col in final_df.columns:
-        final_df["ADM_PCODE"] = final_df[admin_col]
-
-    # Reorder columns so ADM_PCODE follows the main admin column
-    cols = [admin_col, "ADM_PCODE"] + [c for c in final_df.columns if c not in [admin_col, "ADM_PCODE"]]
-    final_df = final_df[cols]
-
+    numeric_cols = final_df.select_dtypes(include=["float", "int"]).columns
+    crops_cols = [c for c in final_df.columns if "_crops_" in c]
+    int_cols = [c for c in numeric_cols if c not in crops_cols]
+    final_df[int_cols] = final_df[int_cols].fillna(0).round(0).astype(int)
+    if crops_cols:
+        final_df[crops_cols] = final_df[crops_cols].fillna(0)
     output_dir.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(out_csv, index=False)
     context.info(f"Flooded population, crops & facilities CSV written to {out_csv}")
@@ -403,6 +401,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    log = logging.getLogger(__name__)
+
     country_code = args.country_code.upper()
     admin_level = args.admin_level.upper()
 
@@ -411,9 +412,9 @@ if __name__ == "__main__":
         if rp not in ALLOWED_RPS:
             raise ValueError(f"Invalid RP '{rp}'. Allowed values: {', '.join(ALLOWED_RPS)}")
 
-        print(f"\n=== Processing {country_code}, {admin_level}, RP{rp} ===")
+        log.info("=== Processing %s, %s, RP%s ===", country_code, admin_level, rp)
 
-        clipped_path = process_country_rp(country_code, rp, admin_level)
+        clipped_path = process_country_rp(log, country_code, rp, admin_level)
 
         temporary_dir = f"data/{country_code}/Temporary"
         output_dir = f"data/{country_code}/Output"
@@ -423,6 +424,7 @@ if __name__ == "__main__":
         gdf = gpd.read_file(gdf_path)
 
         process_flood_impact(
+            context=log,
             country_code=country_code,
             rps=[rp],
             gdf=gdf,

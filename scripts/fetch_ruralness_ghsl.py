@@ -12,7 +12,7 @@ import logging
 import geopandas as gpd
 
 from rasterstats import zonal_stats
-from scripts.fetch_worldpop import fetch_worldpop
+from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 
 RECLASS_MAP = {
     10: None,
@@ -107,8 +107,8 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
         # Ensure WorldPop files exist
         context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
         indicator_tifs = fetch_worldpop(country_code)
-        indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
-        tif_map = dict(zip(indicators, indicator_tifs))
+        indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
+        tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
 
         # --- load SMOD raster ---
         smod = rioxarray.open_rasterio(reclass_tif, masked=True).squeeze()
@@ -151,6 +151,12 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
 
             context.info(f"Processed rural population for {label}")
 
+        # --- calculate dependency ratio mathematically ---
+        dep_col_num = rural_df["dep_dependents_rural"]
+        dep_col_den = rural_df["dep_working_rural"].replace(0, pd.NA)
+        rural_df["dependency_ratio_rural"] = ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
+        rural_df.drop(columns=["dep_dependents_rural", "dep_working_rural"], inplace=True)
+
         # --- calculate one overall rural percentage column ---
         total_pop = pd.Series(total_pop_counts["total_pop"]).replace({0: np.nan})
         rural_df["rural_pop_perc"] = (
@@ -158,7 +164,7 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
         ).fillna(0).round(2)
 
         # --- finalize ---
-        count_cols = [c for c in rural_df.columns if c.endswith("_rural")]
+        count_cols = [c for c in rural_df.columns if c.endswith("_rural") and "dependency_ratio" not in c]
         perc_cols = [c for c in rural_df.columns if c.endswith("_rural_perc")]
 
         # Counts → integers
