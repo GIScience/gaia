@@ -19,12 +19,19 @@ INDICATORS = {
     "elderly": {"ages": [65, 70, 75, 80], "sexes": ["f", "m"]},
     "pop_u15": {"ages": [0, 1, 5, 10], "sexes": ["f", "m"]},
     "female_u15": {"ages": [0, 1, 5, 10], "sexes": ["f"]},
+    
+    # 1. Women of Reproductive Age (15-49 years old)
+    "wra_pop": {"ages": [15, 20, 25, 30, 35, 40, 45], "sexes": ["f"]},
+    
+    # 2. Dependency Ratio Components (Calculated down in aggregate workflow)
+    "dep_dependents": {"ages": [0, 1, 5, 10, 65, 70, 75, 80], "sexes": ["f", "m"]},
+    "dep_working": {"ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60], "sexes": ["f", "m"]}
 }
 
 BASE_URL = "https://data.worldpop.org/GIS"
 POP_TIMEFRAME = "Global_2015_2030"
 RELEASE = "R2025A"
-YEAR = "2030"  # Updated to match your example year
+YEAR = "2030" 
 # -------------------------
 
 def download_url(url, dest_path):
@@ -79,16 +86,9 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
                 needed_bins.add((sex, age))
 
     for sex, age in needed_bins:
-        # --- NEW FILENAME & URL LOGIC ---
-        # Format age as 2 digits (e.g., 0 -> 00, 5 -> 05)
         age_str = str(age).zfill(2)
-        
-        # New filename pattern: afg_f_00_2030_CN_100m_R2025A_v1.tif
         fname = f"{worldpop_code_low}_{sex}_{age_str}_{YEAR}_CN_100m_{RELEASE}_v1.tif"
-        
-        # New URL structure: .../R2025A/2030/AFG/v1/100m/constrained/filename
         url = f"{BASE_URL}/AgeSex_structures/{POP_TIMEFRAME}/{RELEASE}/{YEAR}/{worldpop_code}/v1/100m/constrained/{fname}"
-        # --------------------------------
         
         dest = os.path.join(out_dir_raw, f"{country}_{sex}_{age}_{YEAR}_constrained.tif")
         if not os.path.exists(dest):
@@ -98,9 +98,7 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
             except Exception as e:
                 context_log.error(f"Failed to download {url}: {e}")
                 sys.exit(1)
-        downloaded_path = dest
 
-    # Aggregate indicators (Logic remains the same)
     processed = []
     for ind_name, ind in INDICATORS.items():
         filtered_paths = [
@@ -131,7 +129,7 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
         logging.basicConfig(level=logging.INFO)
         context_log = logging.getLogger("worldpop")
 
-    # 1) Fetch indicators (6 GeoTIFFs) into data/{country}/Temporary
+    # 1) Fetch indicators into data/{country}/Temporary
     tifs = fetch_worldpop(country=country_code, context_log=context_log)
 
     # 2) Load ADM polygons
@@ -144,14 +142,12 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
             f"GeoJSON must contain column '{expected_column}' "
             f"(found: {gdf.columns.tolist()})"
         )
-    # 3) Map indicator names to files
-    indicators = ["total_pop","female_pop","children_u5","female_u5","elderly","pop_u15","female_u15"]
-    tif_map = dict(zip(indicators, tifs))
+
+    # 3) Dynamically map indicator names to files from the updated dict keys
+    tif_map = dict(zip(INDICATORS.keys(), tifs))
 
     results = pd.DataFrame()
     results[f"{admin_level}_PCODE"] = gdf[f"{admin_level}_PCODE"]
-
-    # Add ADM_PCODE column duplicating the administrative code
     results["ADM_PCODE"] = gdf[f"{admin_level}_PCODE"]
 
     # 4) Compute zonal sums
@@ -159,24 +155,31 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
         stats = zonal_stats(gdf, path, stats="sum", nodata=0)
         results[ind] = [s["sum"] for s in stats]
 
-    # ensure ADM_PCODE preserved and not converted to numeric
+    # Ensure admin code is preserved
     admin_col = f"{admin_level}_PCODE"
-    # ensure ADM_PCODE exists and keep original values
     if "ADM_PCODE" not in results.columns and admin_col in results.columns:
         results["ADM_PCODE"] = gdf[admin_col]
 
-    # Round numeric columns and handle NaN or inf safely
-    # Exclude both the original admin column and the ADM_PCODE duplicate from numeric processing
+    # Process and clean numeric values
     numeric_cols = [c for c in results.columns if c not in [admin_col, "ADM_PCODE"]]
-
-    # Replace non-finite values (NaN, inf) with 0 before conversion for numeric columns
     results[numeric_cols] = results[numeric_cols].apply(
         pd.to_numeric, errors="coerce"
     ).fillna(0).replace([float("inf"), float("-inf")], 0)
 
+    # Round populations to absolute whole numbers before ratio logic
     results[numeric_cols] = results[numeric_cols].round(0).astype(int)
 
-    # 5) Save CSV
+    # 5) Compute the mathematical Dependency Ratio
+    # Formula: (Dependents / Working Age Population) * 100
+    # Uses a safe division to avoid errors if a polygon has 0 working-age inhabitants
+    results["dependency_ratio"] = (
+        (results["dep_dependents"] / results["dep_working"].replace(0, pd.NA)) * 100
+    ).fillna(0).round(2)
+
+    # Clean up the intermediate components used for calculation so they don't bloat the final CSV
+    results.drop(columns=["dep_dependents", "dep_working"], inplace=True)
+
+    # 6) Save CSV
     out_dir = os.path.join("data", country_code, "Output")
     os.makedirs(out_dir, exist_ok=True)
     csv_path = os.path.join(out_dir, f"{country_code}_{admin_level}_demographics.csv")
@@ -194,13 +197,11 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Simple logger
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("worldpop")
 
     country = args.country.upper()
 
-    # Execute full workflow: download + aggregate to CSV
     csv_file = aggregate_worldpop_to_csv(
         country_code=country,
         admin_level=args.admin_level,

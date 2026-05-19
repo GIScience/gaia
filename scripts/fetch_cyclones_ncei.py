@@ -18,7 +18,7 @@ from rasterstats import zonal_stats
 import pandas as pd
 from shapely.geometry import mapping
 import yaml
-from scripts.fetch_worldpop import fetch_worldpop
+from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
 
 # -----------------------------
@@ -52,7 +52,7 @@ IBTRACS_LOCAL_ZIP = os.path.join(DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.li
 # Config
 # -----------------------------
 FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
-POP_INDICATORS = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
+POP_INDICATORS = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
 EXPOSURE_CLASSES = [1, 2, 3]  # cyclone categories
 
 # -----------------------------
@@ -186,7 +186,8 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
 
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
-    tif_map = dict(zip(POP_INDICATORS, indicator_tifs))
+    full_tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
+    tif_map = {k: full_tif_map[k] for k in POP_INDICATORS}
 
     context.info(f"Ensuring facility raw geometries exist in {temp_dir}...")
     api_choice = _asset_config.get("facilities_asset", {}).get("api", "").lower()
@@ -232,6 +233,13 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
             stats = zonal_stats(gdf_admin, temp_path, stats="sum", nodata=0)
             df[f"kt34_{indicator}_cat{cls}"] = [round(s["sum"] or 0, 0) for s in stats]
 
+    # Calculate dependency ratio and drop intermediate columns
+    for cls in EXPOSURE_CLASSES:
+        dep_col_num = df[f"kt34_dep_dependents_cat{cls}"]
+        dep_col_den = df[f"kt34_dep_working_cat{cls}"].replace(0, pd.NA)
+        df[f"kt34_dependency_ratio_cat{cls}"] = ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
+        df.drop(columns=[f"kt34_dep_dependents_cat{cls}", f"kt34_dep_working_cat{cls}"], inplace=True)
+
     # --- Facility exposure ---
     for category in FACILITY_CATEGORIES:
         filepath = base_path / f"Temporary/{country_code}_{category}_raw.geojson"
@@ -271,7 +279,7 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
                 axis=1,
             )
 
-    numeric_cols = [c for c in df.select_dtypes(include=["float", "int"]).columns]
+    numeric_cols = [c for c in df.select_dtypes(include=["float", "int"]).columns if "dependency_ratio" not in c]
     df[numeric_cols] = df[numeric_cols].fillna(0).round(0).astype(int)
 
     output_dir = base_path / "Output"
