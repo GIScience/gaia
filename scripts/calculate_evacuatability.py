@@ -62,10 +62,10 @@ DEMOGRAPHIC_INDICATORS = [
 
 def find_population_rasters(temp_dir, country_code):
     pop_rasters = {}
-    pattern = temp_dir / f"{country_code}_pop_*_2020_constrained.tif"
+    pattern = temp_dir / f"{country_code}_pop_*_2030_constrained.tif"
     for path in glob.glob(str(pattern)):
         filename = os.path.basename(path)
-        match = re.search(rf"{country_code}_pop_(.+)_2020_constrained\.tif", filename)
+        match = re.search(rf"{country_code}_pop_(.+)_2030_constrained\.tif", filename)
         if match:
             indicator = match.group(1)
             pop_rasters[indicator] = Path(path)
