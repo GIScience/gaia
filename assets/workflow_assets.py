@@ -192,6 +192,7 @@ def facilities_asset(context, boundary_asset: str) -> Output[List[str]]:
 
 
 @asset(
+    deps=["crops_asset"],
     partitions_def=country_partitions,
     ins={"boundary_asset": AssetIn()},
 )
@@ -227,7 +228,6 @@ def ndvi_asset(context, boundary_asset: str) -> list[str]:
     return output_files
 
 @asset(
-    deps=["ndvi_asset"],
     partitions_def=country_partitions,
     ins={"boundary_asset": AssetIn()},
 )
@@ -262,7 +262,7 @@ def crops_asset(context, boundary_asset: str) -> list[str]:
 
 
 @asset(
-    deps=["demographics_asset", "facilities_asset"],
+    deps=["demographics_asset", "facilities_asset", "crops_asset"],
     partitions_def=country_partitions,
     ins={"boundary_asset": AssetIn()},
 )

@@ -18,25 +18,198 @@ def load_years_from_config(config_path="configs/assets_config.yaml"):
     return years[0], years[1]
 
 
+def generate_crops_tif(country_code: str, target_year: int, target_scale: int = 100, grid_size_deg: float = 0.5):
+    """Generates a binary crop TIF for the country bounds by downloading chunks from GEE."""
+    import math
+    import pickle
+    import shapely.geometry
+    import rasterio
+    from rasterio.merge import merge
+
+    country_boundary_file = f"data/{country_code}/{country_code}_ADM0.geojson"
+    if not os.path.exists(country_boundary_file):
+        print(f"Boundary file not found: {country_boundary_file}")
+        return None
+
+    output_tif = f"data/{country_code}/Temporary/{country_code}_crops_{target_year}.tif"
+    results_file = f"data/{country_code}/Temporary/{country_code}_crops_{target_year}_raster_chunks.pkl"
+
+    if os.path.exists(output_tif):
+        print(f"Crops TIF already exists at {output_tif}. Skipping generation.")
+        return output_tif
+
+    os.makedirs(f"data/{country_code}/Temporary", exist_ok=True)
+
+    # Initialize Earth Engine only if we actually need to generate the TIF
+    ee.Initialize(project="aa-automatization")
+
+    country_gdf = gpd.read_file(country_boundary_file).to_crs(epsg=4326)
+    country_ee = geemap.geopandas_to_ee(country_gdf)
+
+    xmin, ymin, xmax, ymax = country_gdf.total_bounds
+    columns = math.ceil((xmax - xmin) / grid_size_deg)
+    rows = math.ceil((ymax - ymin) / grid_size_deg)
+
+    grid_cells = []
+    for i in range(columns):
+        for j in range(rows):
+            x1 = xmin + i * grid_size_deg
+            y1 = ymin + j * grid_size_deg
+            x2 = x1 + grid_size_deg
+            y2 = y1 + grid_size_deg
+            grid_cells.append(shapely.geometry.box(x1, y1, x2, y2))
+
+    grid_gdf = gpd.GeoDataFrame(geometry=grid_cells, crs="EPSG:4326")
+    chunks_gdf = gpd.overlay(grid_gdf, country_gdf, how="intersection")
+
+    total_chunks = len(chunks_gdf)
+    print(f"Total spatial chunks to process for {country_code} crops TIF: {total_chunks}")
+
+    start_date = f"{target_year}-01-01"
+    end_date = f"{target_year}-12-31"
+
+    dw_col = (ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
+              .filterDate(start_date, end_date)
+              .filterBounds(country_ee))
+
+    dw_mode = dw_col.select('label').reduce(ee.Reducer.mode())
+    crop_mask = dw_mode.eq(4).rename('crops').clip(country_ee)
+
+    local_chunk_files = []
+    start_idx = 0
+    chunk_count = 0
+
+    if os.path.exists(results_file):
+        with open(results_file, "rb") as f:
+            saved = pickle.load(f)
+        local_chunk_files = saved.get("local_chunk_files", [])
+        start_idx = saved.get("last_idx", 0)
+        chunk_count = saved.get("chunk_count", 0)
+        print(f"Resuming from chunk index {start_idx} ({chunk_count}/{total_chunks})")
+
+    while start_idx < total_chunks:
+        print(f"Processing spatial chunk {start_idx + 1}/{total_chunks} ...")
+
+        chunk_geom = chunks_gdf.iloc[start_idx:start_idx+1]
+        ee_chunk_geom = geemap.geopandas_to_ee(chunk_geom).geometry()
+
+        chunk_tif = f"data/{country_code}/Temporary/temp_crop_{target_year}_chunk_{start_idx}.tif"
+
+        try:
+            geemap.ee_export_image(
+                crop_mask,
+                filename=chunk_tif,
+                scale=target_scale,
+                region=ee_chunk_geom,
+                file_per_band=False
+            )
+
+            if os.path.exists(chunk_tif):
+                local_chunk_files.append(chunk_tif)
+
+                with open(results_file, "wb") as f:
+                    pickle.dump({
+                        "local_chunk_files": local_chunk_files,
+                        "last_idx": start_idx + 1,
+                        "chunk_count": chunk_count + 1
+                    }, f)
+
+        except Exception as e:
+            print(f"Error processing chunk index {start_idx}: {e}")
+            if os.path.exists(chunk_tif):
+                os.remove(chunk_tif)
+
+        start_idx += 1
+        chunk_count += 1
+
+    if not local_chunk_files:
+        print("No chunks were successfully downloaded. Returning.")
+        return None
+
+    print(f"Merging {len(local_chunk_files)} raster chunks into final mosaic...")
+    src_files_to_mosaic = []
+    for fp in local_chunk_files:
+        if os.path.exists(fp):
+            src_files_to_mosaic.append(rasterio.open(fp))
+
+    if src_files_to_mosaic:
+        mosaic, out_trans = merge(src_files_to_mosaic)
+
+        out_meta = src_files_to_mosaic[0].meta.copy()
+        out_meta.update({
+            "driver": "GTiff",
+            "height": mosaic.shape[1],
+            "width": mosaic.shape[2],
+            "transform": out_trans,
+            "crs": src_files_to_mosaic[0].crs
+        })
+
+        with rasterio.open(output_tif, "w", **out_meta) as dest:
+            dest.write(mosaic)
+
+        for src in src_files_to_mosaic:
+            src.close()
+
+        print(f"Successfully generated cohesive map: {output_tif}")
+
+    for fp in local_chunk_files:
+        if os.path.exists(fp):
+            os.remove(fp)
+    if os.path.exists(results_file):
+        os.remove(results_file)
+
+    return output_tif
+
+
 def process_crops_for_admin(country_code: str, admin_level: str, config_path="configs/assets_config.yaml") -> str:
     """Run crop coverage calculation for a given country/admin level and return output CSV path."""
 
-    # Initialize Earth Engine
-    ee.Initialize(project="aa-automatization")
-
     year_prev, year_curr = load_years_from_config(config_path)
+
+    # Generate the crops TIF for both target years
+    tif_prev = generate_crops_tif(country_code, target_year=year_prev)
+    tif_curr = generate_crops_tif(country_code, target_year=year_curr)
 
     gdf = gpd.read_file(f"data/{country_code}/{country_code}_{admin_level}.geojson")
 
-    chunk_size = 5
-    start_idx = 0
-    
+    # Compute area in km2 (using equal area projection CEA)
+    gdf_area = gdf.to_crs("+proj=cea")
+    area_km2 = gdf_area.geometry.area / 10**6
+
+    df = pd.DataFrame()
+    df[f"{admin_level.upper()}_PCODE"] = gdf[f"{admin_level.upper()}_PCODE"]
+
+    if tif_prev and os.path.exists(tif_prev):
+        from rasterstats import zonal_stats
+        stats_prev = zonal_stats(gdf, tif_prev, stats="mean", nodata=-9999)
+        df[f"crops_{year_prev}_pct"] = [ (s["mean"] * 100) if s["mean"] is not None else 0 for s in stats_prev ]
+    else:
+        df[f"crops_{year_prev}_pct"] = 0
+
+    if tif_curr and os.path.exists(tif_curr):
+        from rasterstats import zonal_stats
+        stats_curr = zonal_stats(gdf, tif_curr, stats="mean", nodata=-9999)
+        df[f"crops_{year_curr}_pct"] = [ (s["mean"] * 100) if s["mean"] is not None else 0 for s in stats_curr ]
+    else:
+        df[f"crops_{year_curr}_pct"] = 0
+
+    df["crops_diff_pctpts"] = df[f"crops_{year_curr}_pct"] - df[f"crops_{year_prev}_pct"]
+    df["crops_diff_km2"] = df["crops_diff_pctpts"] * area_km2 / 100
+
+    # Calculate relative change pct safely (avoid division by zero)
+    def calc_rel_change(prev, diff):
+        if prev == 0:
+            return None
+        return (diff / prev) * 100
+
+    df["crops_change_rel_pct"] = df.apply(
+        lambda row: calc_rel_change(row[f"crops_{year_prev}_pct"], row["crops_diff_pctpts"]), 
+        axis=1
+    )
+
     # Ensure Output folder exists
     os.makedirs(f"data/{country_code}/Output", exist_ok=True)
     output_csv = f"data/{country_code}/Output/{country_code}_{admin_level}_crops.csv"
-
-    if os.path.exists(output_csv):
-        os.remove(output_csv)
 
     col_order = [
         f"{admin_level.upper()}_PCODE",
@@ -47,87 +220,10 @@ def process_crops_for_admin(country_code: str, admin_level: str, config_path="co
         "crops_change_rel_pct",
     ]
 
-    dw = ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
-
-    def yearly_composite(y, geom):
-        coll = (
-            dw.filterDate(f"{y}-01-01", f"{y}-12-31")
-            .filterBounds(geom)
-            .select("label")
-        )
-        return coll.reduce(ee.Reducer.mode())
-
-    while start_idx < len(gdf):
-        end_idx = start_idx + chunk_size
-        gdf_chunk = gdf.iloc[start_idx:end_idx]
-
-        try:
-            fc = geemap.geopandas_to_ee(gdf_chunk)
-
-            def add_crops_stats(feature):
-                geom = feature.geometry()
-                comp_prev = yearly_composite(year_prev, geom)
-                comp_curr = yearly_composite(year_curr, geom)
-
-                polygon_area_km2 = ee.Number(geom.area()).divide(1e6)
-
-                crop_prev_raw = comp_prev.eq(4).rename("crops").reduceRegion(
-                    reducer=ee.Reducer.mean(),
-                    geometry=geom,
-                    scale=10,
-                    bestEffort=True,
-                ).get("crops")
-
-                crop_curr_raw = comp_curr.eq(4).rename("crops").reduceRegion(
-                    reducer=ee.Reducer.mean(),
-                    geometry=geom,
-                    scale=10,
-                    bestEffort=True,
-                ).get("crops")
-
-                crop_prev_perc = ee.Number(ee.Algorithms.If(crop_prev_raw, crop_prev_raw, 0)).multiply(100)
-                crop_curr_perc = ee.Number(ee.Algorithms.If(crop_curr_raw, crop_curr_raw, 0)).multiply(100)
-
-                crops_perc_point_dif = crop_curr_perc.subtract(crop_prev_perc)
-                crops_abs_dif_km2 = crops_perc_point_dif.multiply(polygon_area_km2).divide(100)
-
-                crops_rel_change_perc = ee.Algorithms.If(
-                    crop_prev_perc.neq(0),
-                    crops_perc_point_dif.divide(crop_prev_perc).multiply(100),
-                    None,
-                )
-
-                return feature.set({
-                    f"crops_{year_prev}_pct": crop_prev_perc,
-                    f"crops_{year_curr}_pct": crop_curr_perc,
-                    "crops_diff_km2": crops_abs_dif_km2,
-                    "crops_diff_pctpts": crops_perc_point_dif,
-                    "crops_change_rel_pct": crops_rel_change_perc,
-                })
-
-            fc_with_stats = fc.map(add_crops_stats)
-            fc_filtered = fc_with_stats.select(
-                propertySelectors=col_order, retainGeometry=False
-            )
-
-            temp_csv = f"data/{country_code}/{country_code}_crops_{admin_level}_temp_chunk.csv"
-            geemap.ee_to_csv(fc_filtered, filename=temp_csv)
-
-            df_chunk = pd.read_csv(temp_csv)
-            df_chunk = df_chunk[[c for c in col_order if c in df_chunk.columns]]
-            df_chunk[col_order[1:]] = df_chunk[col_order[1:]].round(2)
-
-            if start_idx == 0 and not os.path.exists(output_csv):
-                df_chunk.to_csv(output_csv, index=False)
-            else:
-                df_chunk.to_csv(output_csv, mode="a", header=False, index=False)
-
-            os.remove(temp_csv)
-            start_idx = end_idx
-
-        except Exception:
-            start_idx = end_idx
-
+    df = df[col_order]
+    df[col_order[1:]] = df[col_order[1:]].round(2)
+    df.to_csv(output_csv, index=False)
+    
     return output_csv
 
 if __name__ == "__main__":

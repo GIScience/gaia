@@ -16,5 +16,5 @@ ndvi_asset:
   year: [2022] # year to use for the ndvi calculation
 
 crops_asset:
-  years: [2023, 2024] # years to compare for change detection
+  years: [2024, 2025] # years to compare for change detection
 

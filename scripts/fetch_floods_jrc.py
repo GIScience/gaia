@@ -14,7 +14,7 @@ import yaml
 from shapely.geometry import mapping
 from pathlib import Path
 
-from scripts.fetch_worldpop import fetch_worldpop
+from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
 
 ASSET_CONFIG_YAML_PATH = os.path.join(os.getcwd(), "configs", "assets_config.yaml")
@@ -153,9 +153,12 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
 
 def process_flood_impact(context, country_code, rps, gdf, admin_level, output_dir):
     """
-    Process flooded population for all RPs of a given country/admin_level.
-    Generates a single CSV with columns for each RP, indicator, threshold,
-    and percentage of facilities flooded.
+    Process flooded population, crops, and facilities for all RPs of a given
+    country/admin_level. Generates a single CSV with columns for each RP,
+    indicator, threshold, flooded cropland area, and flooded facilities.
+    Flooded cropland area is computed server-side in GEE: the flood extent
+    per admin unit is uploaded as EE geometries and intersected with
+    Dynamic World crop classification via reduceRegion.
     """
     country_code = country_code.upper()
     output_dir = Path(output_dir)
@@ -172,8 +175,11 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     # Ensure WorldPop files exist
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
-    indicators = ["female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15"]
-    tif_map = dict(zip(indicators, indicator_tifs))
+    indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
+    tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
+
+    # We will use this list to check expected columns so we don't look for deleted columns
+    final_indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dependency_ratio"]
 
     # Ensure facilities exist
     context.info(f"Ensuring facility raw geometries exist in {temp_dir}...")
@@ -204,16 +210,26 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         if category not in geojsons_map:
             geojsons_map[category] = base_path / f"Temporary/{country_code}_{category}_raw.geojson"
 
+    crop_years = _asset_config.get("crops_asset", {}).get("years", [])
+
+    if crop_years:
+        try:
+            import ee
+            ee.Initialize(project="aa-automatization")
+            ee_initialized = True
+        except Exception:
+            ee_initialized = False
+
     for rp in rps:
         context.info(f"Processing RP{rp}...")
 
         # Skip RP if all expected columns already exist
         expected_cols = [
-            f"RP{rp}_{label}_{suffix}" for label in indicators for suffix in THRESH_SUFFIX
+            f"RP{rp}_{label}_{suffix}" for label in final_indicators for suffix in [THRESH_SUFFIX]
         ] + [
-            f"RP{rp}_{cat}_{suffix}_pct" for cat in facility_categories for suffix in THRESH_SUFFIX
+            f"RP{rp}_{cat}_{suffix}_pct" for cat in facility_categories for suffix in [THRESH_SUFFIX]
         ] + [
-            f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in THRESH_SUFFIX
+            f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in [THRESH_SUFFIX]
         ]
         if all(col in final_df.columns for col in expected_cols):
             context.info(f"RP{rp} already processed, skipping...")
@@ -227,6 +243,9 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         flood = rioxarray.open_rasterio(clipped_path, masked=True).squeeze()
 
         rp_df = pd.DataFrame({f"{admin_level}_PCODE": gdf[f"{admin_level}_PCODE"]})
+
+        # ---- Flooded crops (GEE pixel-level overlay via JRC GLOFAS + Dynamic World) ----
+        # (crops columns removed from output)
 
         # ---- Flooded population ----
         for label in indicators:
@@ -249,6 +268,51 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
             rp_df[f"RP{rp}_{label}_{THRESH_SUFFIX}"] = [s["sum"] if s["sum"] is not None else 0 for s in stats]
 
             context.info(f"Processed flooded population for {label} >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
+
+        # Calculate mathematical dependency ratio for the flooded population
+        dep_col_num = rp_df[f"RP{rp}_dep_dependents_{THRESH_SUFFIX}"]
+        dep_col_den = rp_df[f"RP{rp}_dep_working_{THRESH_SUFFIX}"].replace(0, pd.NA)
+        rp_df[f"RP{rp}_dependency_ratio_{THRESH_SUFFIX}"] = ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
+        
+        # Drop the intermediate components
+        rp_df.drop(columns=[f"RP{rp}_dep_dependents_{THRESH_SUFFIX}", f"RP{rp}_dep_working_{THRESH_SUFFIX}"], inplace=True)
+        
+        # ---- Flooded crops ----
+        try:
+            year_curr = _asset_config.get("crops_asset", {}).get("years", [None, None])[1]
+        except IndexError:
+            year_curr = None
+            
+        if year_curr:
+            crops_tif_path = base_path / f"Temporary/{country_code}_crops_{year_curr}.tif"
+        else:
+            crops_tif_path = Path("invalid_path")
+
+        if crops_tif_path.exists():
+            context.info(f"Processing flooded crops...")
+            crops_raster = rioxarray.open_rasterio(crops_tif_path, masked=True).squeeze()
+
+            # Align flood raster to crops raster to preserve crops' 100m resolution
+            flood_aligned = flood.rio.reproject_match(crops_raster, resampling=Resampling.nearest)
+            flood_mask = (flood_aligned > FLOOD_THRESHOLD).astype("float32")
+            flooded_crops = crops_raster * flood_mask
+
+            tmp_flooded_crops = temp_dir / f"tmp_flooded_crops_RP{rp}_{THRESH_SUFFIX}.tif"
+            with rasterio.open(crops_tif_path) as src:
+                meta = src.meta.copy()
+                meta.update(compress="lzw", tiled=True,
+                            bigtiff="yes" if src.width*src.height > 2**32 else "no")
+            with rasterio.open(tmp_flooded_crops, "w", **meta) as dst:
+                dst.write(flooded_crops.values, 1)
+
+            # sum gives pixel count, each pixel is 100mx100m = 0.01 km2
+            stats = zonal_stats(gdf, tmp_flooded_crops, stats="sum", nodata=0)
+            rp_df[f"RP{rp}_crops_km2_{THRESH_SUFFIX}"] = [s["sum"] * 0.01 if s["sum"] is not None else 0 for s in stats]
+
+            context.info(f"Processed flooded crops >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
+        else:
+            context.warning(f"Crops TIF not found at {crops_tif_path}, skipping crops processing.")
+            rp_df[f"RP{rp}_crops_km2_{THRESH_SUFFIX}"] = 0
 
         # ---- Flooded facilities ----
         for category, filepath in geojsons_map.items():
@@ -294,11 +358,18 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         final_df = final_df.merge(rp_df, on=f"{admin_level}_PCODE", how="left")
         context.info(f"Processed RP{rp}")
 
+    drop_cols = [c for c in final_df.columns if re.search(r'RP\d+_crops_\d+cm_(km2|areapct|croppct)$', c)]
+    if drop_cols:
+        final_df.drop(columns=drop_cols, inplace=True)
     numeric_cols = final_df.select_dtypes(include=["float", "int"]).columns
-    final_df[numeric_cols] = final_df[numeric_cols].fillna(0).round(0).astype(int)
+    crops_cols = [c for c in final_df.columns if "_crops_" in c]
+    int_cols = [c for c in numeric_cols if c not in crops_cols]
+    final_df[int_cols] = final_df[int_cols].fillna(0).round(0).astype(int)
+    if crops_cols:
+        final_df[crops_cols] = final_df[crops_cols].fillna(0)
     output_dir.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(out_csv, index=False)
-    context.info(f"Flooded population & facilities CSV written to {out_csv}")
+    context.info(f"Flooded population, crops & facilities CSV written to {out_csv}")
 
     return str(out_csv)
 
