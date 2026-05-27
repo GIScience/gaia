@@ -370,6 +370,9 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         final_df = final_df.merge(rp_df, on=f"{admin_level}_PCODE", how="left")
         context.info(f"Processed RP{rp}")
 
+    drop_cols = [c for c in final_df.columns if re.search(r'RP\d+_crops_\d+cm_(km2|areapct|croppct)$', c)]
+    if drop_cols:
+        final_df.drop(columns=drop_cols, inplace=True)
     numeric_cols = final_df.select_dtypes(include=["float", "int"]).columns
     crops_cols = [c for c in final_df.columns if "_crops_" in c]
     int_cols = [c for c in numeric_cols if c not in crops_cols]
