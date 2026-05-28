@@ -16,6 +16,7 @@ from assets.workflow_assets import (
     prep_visualization_asset,
     risk_score_asset,
     upload_viz_minio_asset,
+    RAI_asset,
     #upload_minio_asset,
     # upload_hdx_asset  
 )
@@ -29,6 +30,7 @@ ASSETS_TO_RUN = [
     exposure_cyclone_asset,
     evacuability_asset,
     rural_asset,
+    RAI_asset,
     access_asset,
     coping_asset,
     vulnerability_asset,
