@@ -212,7 +212,7 @@ def process_crops_for_admin(country_code: str, admin_level: str, config_path="co
     output_csv = f"data/{country_code}/Output/{country_code}_{admin_level}_crops.csv"
 
     col_order = [
-        admin_col,
+        f"{admin_level.upper()}_PCODE",
         "ADM_PCODE",  # duplicate column for consistent schema
         f"crops_{year_prev}_pct",
         f"crops_{year_curr}_pct",

@@ -18,6 +18,7 @@ from scripts.fetch_access_minio import compute_access_population
 from scripts.compute_rai import compute_rai, download_road_data
 from scripts.fetch_cyclones_ncei import calculate_cyclone_exposure
 from scripts.calculate_evacuatability import compute_evacuability_csv
+from scripts.fetch_rural_access_index import compute_rural_access_index
 from typing import List
 import numpy as np
 import requests
@@ -689,101 +690,7 @@ def rural_asset(context, boundary_asset: str, demographics_asset) -> list[str]:
 
 
 @asset(
-    partitions_def=country_partitions,
-    ins={"boundary_asset": AssetIn(), "demographics_asset": AssetIn(), "rural_asset": AssetIn()},
-)
-def RAI_asset(context, boundary_asset: str, demographics_asset, rural_asset) -> list[str]:
-    """
-    Compute Rural Accessibility Index (RAI) — percentage of population in
-    rural areas (GHS-SMOD classes 11/12/13) within 2 km of a paved road.
-    """
-    country_code = context.partition_key.upper()
-    base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
-
-    admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
-    if not admin_levels:
-        raise ValueError("No admin_levels configured in assets_config.yaml")
-
-    # Download road data to Temporary/rai_roads/
-    road_download_dir = base_path / "Temporary" / "rai_roads"
-    road_paths = download_road_data(country_code, str(road_download_dir), context.log)
-
-    outputs = []
-
-    for admin_level in admin_levels:
-        orig_level = admin_level
-        level, boundary_path = find_best_available_admin_level(base_path, country_code, admin_level)
-
-        if not level:
-            context.log.warning(f"Skipping {country_code}: no boundary found for {orig_level} or lower levels")
-            continue
-
-        if level != orig_level:
-            context.log.info(f"[{country_code}] Using fallback admin level {level} (requested {orig_level})")
-
-        admin_level = level
-
-        context.log.info(f"Processing {country_code} {admin_level} using {boundary_path}")
-        gdf = gpd.read_file(boundary_path)
-
-        id_col = f"{admin_level.upper()}_PCODE"
-        if id_col not in gdf.columns:
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: expected ID column '{id_col}' not found"
-            )
-            continue
-
-        output_dir = base_path / "Output"
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Find matching demographics CSV for this admin level
-        demo_csv = None
-        for csv_path in demographics_asset:
-            if f"{country_code}_{admin_level}_demographics" in csv_path:
-                demo_csv = csv_path
-                break
-        if not demo_csv:
-            context.log.warning(f"No demographics CSV for {admin_level}, trying first available")
-            demo_csv = demographics_asset[0] if demographics_asset else None
-
-        if not demo_csv:
-            context.log.error(f"No demographics CSV available for {country_code}")
-            continue
-
-        # Find matching rural CSV for this admin level
-        rural_csv = None
-        for csv_path in rural_asset:
-            if f"{country_code}_{admin_level}_rural_population" in csv_path:
-                rural_csv = csv_path
-                break
-        if not rural_csv:
-            context.log.warning(f"No rural CSV for {admin_level}, trying first available")
-            rural_csv = rural_asset[0] if rural_asset else None
-
-        if not rural_csv:
-            context.log.error(f"No rural CSV available for {country_code}")
-            continue
-
-        csv_path = compute_rai(
-            country_code=country_code,
-            admin_level=admin_level,
-            gdf_admin=gdf,
-            output_dir=str(output_dir),
-            work_dir=str(base_path / "Temporary"),
-            mapillary_path=road_paths.get("mapillary"),
-            planet_path=road_paths.get("planet"),
-            demographics_csv=demo_csv,
-            rural_csv=rural_csv,
-            context=context.log,
-        )
-        outputs.append(csv_path)
-
-    return outputs
-
-
-
-@asset(
-    deps=["demographics_asset"], 
+    deps=["demographics_asset"],
     partitions_def=country_partitions,
     ins={"boundary_asset": AssetIn()},
 )
@@ -843,13 +750,112 @@ def access_asset(context, boundary_asset: str) -> list[str]:
     return outputs
 
 @asset(
-    deps=["access_asset", "facilities_asset", "evacuability_asset", "RAI_asset"],
+    deps=["demographics_asset"],
+    partitions_def=country_partitions,
+    ins={"boundary_asset": AssetIn()},
+)
+def RAI_asset(context, boundary_asset: str) -> list[str]:
+    """
+    Compute Rural Accessibility Index (RAI).
+    Mirrors rural_access_index.R workflow:
+    1. Load paved road data, buffer by 2km
+    2. Extract rural SMOD classes (11,12,13) as polygon
+    3. Intersect buffered roads with rural areas
+    4. Clip to ADM boundaries
+    5. Extract population counts within accessible areas from WorldPop rasters
+    6. Compute RAI ratio = accessible_pop / total_pop * 100
+    """
+    country_code = context.partition_key.upper()
+    base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
+
+    admin_levels = _asset_config.get("setup", {}).get("admin_levels", [])
+    if not admin_levels:
+        raise ValueError("No admin_levels configured in assets_config.yaml")
+
+    rai_cfg = _asset_config.get("rai_asset", {})
+    mapillary_template = rai_cfg.get("mapillary_path", "")
+    planet_template = rai_cfg.get("planet_path", "")
+    smod_raster = rai_cfg.get("smod_raster", "")
+
+    country_lower = country_code.lower()
+    mapillary_path = mapillary_template.replace("{country}", country_lower)
+    planet_path = planet_template.replace("{country}", country_lower)
+
+    outputs = []
+
+    for admin_level in admin_levels:
+        boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
+        if not boundary_path.exists():
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: boundary file not found at {boundary_path}"
+            )
+            continue
+
+        context.log.info(f"Processing {country_code} {admin_level} RAI using {boundary_path}")
+
+        gdf = gpd.read_file(boundary_path)
+        id_col = f"{admin_level.upper()}_PCODE"
+        if id_col not in gdf.columns:
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: expected ID column '{id_col}' not found"
+            )
+            continue
+
+        # Demographics CSV from demographics_asset output
+        demographics_csv = base_path / "Output" / f"{country_code}_{admin_level}_demographics.csv"
+        if not demographics_csv.exists():
+            context.log.warning(
+                f"Skipping {country_code} {admin_level}: demographics CSV not found at {demographics_csv}"
+            )
+            continue
+
+        # Population raster dir (WorldPop TIFs in Temporary/)
+        pop_raster_dir = base_path / "Temporary"
+
+        if not os.path.exists(mapillary_path):
+            context.log.warning(f"Skipping {country_code}: mapillary road data not found at {mapillary_path}")
+            continue
+        if not os.path.exists(planet_path):
+            context.log.warning(f"Skipping {country_code}: planet road data not found at {planet_path}")
+            continue
+        if not os.path.exists(smod_raster):
+            context.log.warning(f"Skipping {country_code}: SMOD raster not found at {smod_raster}")
+            continue
+
+        output_dir = base_path / "Output"
+        os.makedirs(output_dir, exist_ok=True)
+
+        try:
+            csv_path = compute_rural_access_index(
+                country_code=country_code,
+                admin_level=admin_level,
+                boundary_dir=str(base_path),
+                demographics_csv=str(demographics_csv),
+                population_raster_dir=str(pop_raster_dir),
+                mapillary_path=mapillary_path,
+                planet_path=planet_path,
+                smod_raster_path=smod_raster,
+                output_dir=str(output_dir),
+                context=context.log,
+            )
+            outputs.append(csv_path)
+            context.log.info(f"[{country_code}] RAI computation complete: {csv_path}")
+        except Exception as e:
+            context.log.warning(f"Failed RAI for {country_code} {admin_level}: {e}")
+            continue
+
+    if not outputs:
+        context.log.warning(f"No RAI outputs created for {country_code}")
+    return outputs
+
+
+@asset(
+    deps=["access_asset", "facilities_asset"],
     partitions_def=country_partitions,
 )
-def coping_asset(context, access_asset: List[str], facilities_asset: List[str],
-                  evacuability_asset: List[str], RAI_asset: List[str]) -> list[str]:
+def coping_asset(context, access_asset: List[str], facilities_asset: List[str]) -> list[str]:
     """
-    Combine accessibility, facilities, evacuability, and RAI CSVs into a single
+    Combine accessibility and facilities CSVs into a single
     coping dataset. Joins on the ADM*_PCODE column per admin level.
     Produces one coping CSV per admin level in Output/.
     """
@@ -861,8 +867,6 @@ def coping_asset(context, access_asset: List[str], facilities_asset: List[str],
         if i >= len(facilities_asset):
             break
         facilities_csv = facilities_asset[i]
-        evac_csv = evacuability_asset[i] if i < len(evacuability_asset) else None
-        rai_csv = RAI_asset[i] if i < len(RAI_asset) else None
 
         if not os.path.exists(access_csv) or not os.path.exists(facilities_csv):
             context.log.warning(
@@ -882,28 +886,6 @@ def coping_asset(context, access_asset: List[str], facilities_asset: List[str],
             id_col = id_col[0]
 
             merged = pd.merge(df_access, df_facilities, on=id_col, how="left")
-
-            # Merge evacuability CSV if available
-            if evac_csv and os.path.exists(evac_csv):
-                df_evac = pd.read_csv(evac_csv)
-                if id_col in df_evac.columns:
-                    evac_cols = [c for c in df_evac.columns if c != id_col]
-                    if evac_cols:
-                        merged = pd.merge(merged, df_evac[[id_col] + evac_cols], on=id_col, how="left")
-                        context.log.info(f"[{country_code}] Merged evacuability data from {evac_csv}")
-                else:
-                    context.log.warning(f"[{country_code}] Evacuability CSV missing ID column '{id_col}', skipping")
-
-            # Merge RAI CSV if available
-            if rai_csv and os.path.exists(rai_csv):
-                df_rai = pd.read_csv(rai_csv)
-                if id_col in df_rai.columns:
-                    rai_cols = [c for c in df_rai.columns if c != id_col]
-                    if rai_cols:
-                        merged = pd.merge(merged, df_rai[[id_col] + rai_cols], on=id_col, how="left")
-                        context.log.info(f"[{country_code}] Merged RAI data from {rai_csv} ({len(rai_cols)} cols)")
-                else:
-                    context.log.warning(f"[{country_code}] RAI CSV missing ID column '{id_col}', skipping")
 
             # --- keep only one ADM_PCODE column ---
             adm_cols = [c for c in merged.columns if c.startswith("ADM") and c.endswith("_PCODE")]

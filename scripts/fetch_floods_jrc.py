@@ -182,11 +182,9 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
     indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
-    indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
     tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
 
     # We will use this list to check expected columns so we don't look for deleted columns
-    final_indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dependency_ratio"]
     final_indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dependency_ratio"]
 
     # Ensure facilities exist
