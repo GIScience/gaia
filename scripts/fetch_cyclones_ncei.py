@@ -20,6 +20,8 @@ from shapely.geometry import mapping
 import yaml
 from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
+import rioxarray
+from rasterio.enums import Resampling
 
 # -----------------------------
 # Simple context with info/warning
@@ -279,8 +281,53 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
                 axis=1,
             )
 
-    numeric_cols = [c for c in df.select_dtypes(include=["float", "int"]).columns if "dependency_ratio" not in c]
-    df[numeric_cols] = df[numeric_cols].fillna(0).round(0).astype(int)
+    # --- Crop exposure (same logic as flood: overlay hazard mask on crop raster) ---
+    try:
+        year_curr = _asset_config.get("crops_asset", {}).get("years", [None, None])[1]
+    except IndexError:
+        year_curr = None
+
+    if year_curr:
+        crops_tif_path = base_path / f"Temporary/{country_code}_crops_{year_curr}.tif"
+    else:
+        crops_tif_path = Path("invalid_path")
+
+    if crops_tif_path.exists():
+        context.info(f"Processing cyclone-exposed crops...")
+        crops_raster = rioxarray.open_rasterio(crops_tif_path, masked=True).squeeze()
+        cyclone_xr = rioxarray.open_rasterio(raster_path, masked=True).squeeze()
+
+        cyclone_aligned = cyclone_xr.rio.reproject_match(crops_raster, resampling=Resampling.nearest)
+
+        for cls in EXPOSURE_CLASSES:
+            mask_cls = (cyclone_aligned == cls).astype("float32")
+            exposed_crops = crops_raster * mask_cls
+
+            tmp_exposed_crops = temp_dir / f"tmp_exposed_crops_cat{cls}.tif"
+            with rasterio.open(crops_tif_path) as src:
+                meta = src.meta.copy()
+                meta.update(compress="lzw", tiled=True,
+                            bigtiff="yes" if src.width*src.height > 2**32 else "no")
+            with rasterio.open(tmp_exposed_crops, "w", **meta) as dst:
+                dst.write(exposed_crops.values, 1)
+
+            stats = zonal_stats(gdf_admin, tmp_exposed_crops, stats="sum", nodata=0)
+            df[f"kt34_crops_km2_cat{cls}"] = [s["sum"] * 0.01 if s["sum"] is not None else 0 for s in stats]
+
+            context.info(f"Processed cyclone-exposed crops for cat{cls}")
+    else:
+        context.warning(f"Crops TIF not found at {crops_tif_path}, skipping crops processing.")
+        for cls in EXPOSURE_CLASSES:
+            df[f"kt34_crops_km2_cat{cls}"] = 0
+
+    numeric_cols = df.select_dtypes(include=["float", "int"]).columns
+    crops_cols = [c for c in df.columns if "_crops_" in c]
+    ratio_cols = [c for c in df.columns if "dependency_ratio" in c]
+    float_cols = crops_cols + ratio_cols
+    int_cols = [c for c in numeric_cols if c not in float_cols]
+    df[int_cols] = df[int_cols].fillna(0).round(0).astype(int)
+    if float_cols:
+        df[float_cols] = df[float_cols].fillna(0).round(2)
 
     output_dir = base_path / "Output"
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -182,9 +182,11 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
     indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
+    indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
     tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
 
     # We will use this list to check expected columns so we don't look for deleted columns
+    final_indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dependency_ratio"]
     final_indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dependency_ratio"]
 
     # Ensure facilities exist
@@ -216,16 +218,6 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         if category not in geojsons_map:
             geojsons_map[category] = base_path / f"Temporary/{country_code}_{category}_raw.geojson"
 
-    crop_years = _asset_config.get("crops_asset", {}).get("years", [])
-
-    if crop_years:
-        try:
-            import ee
-            ee.Initialize(project="aa-automatization")
-            ee_initialized = True
-        except Exception:
-            ee_initialized = False
-
     for rp in rps:
         context.info(f"Processing RP{rp}...")
 
@@ -237,11 +229,7 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         ] + [
             f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in [THRESH_SUFFIX]
         ] + [
-            f"RP{rp}_crops_{suffix}_km2" for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_crops_{suffix}_areapct" for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_crops_{suffix}_croppct" for suffix in [THRESH_SUFFIX]
+            f"RP{rp}_crops_km2_{suffix}" for suffix in [THRESH_SUFFIX]
         ]
         if all(col in final_df.columns for col in expected_cols):
             context.info(f"RP{rp} already processed, skipping...")
@@ -256,8 +244,40 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
 
         rp_df = pd.DataFrame({f"{admin_level}_PCODE": gdf[f"{admin_level}_PCODE"]})
 
-        # ---- Flooded crops (GEE pixel-level overlay via JRC GLOFAS + Dynamic World) ----
-        # (crops columns removed from output)
+        # ---- Flooded crops ----
+        try:
+            year_curr = _asset_config.get("crops_asset", {}).get("years", [None, None])[1]
+        except IndexError:
+            year_curr = None
+            
+        if year_curr:
+            crops_tif_path = base_path / f"Temporary/{country_code}_crops_{year_curr}.tif"
+        else:
+            crops_tif_path = Path("invalid_path")
+
+        if crops_tif_path.exists():
+            context.info(f"Processing flooded crops...")
+            crops_raster = rioxarray.open_rasterio(crops_tif_path, masked=True).squeeze()
+
+            flood_aligned = flood.rio.reproject_match(crops_raster, resampling=Resampling.nearest)
+            flood_mask = (flood_aligned > FLOOD_THRESHOLD).astype("float32")
+            flooded_crops = crops_raster * flood_mask
+
+            tmp_flooded_crops = temp_dir / f"tmp_flooded_crops_RP{rp}_{THRESH_SUFFIX}.tif"
+            with rasterio.open(crops_tif_path) as src:
+                meta = src.meta.copy()
+                meta.update(compress="lzw", tiled=True,
+                            bigtiff="yes" if src.width*src.height > 2**32 else "no")
+            with rasterio.open(tmp_flooded_crops, "w", **meta) as dst:
+                dst.write(flooded_crops.values, 1)
+
+            stats = zonal_stats(gdf, tmp_flooded_crops, stats="sum", nodata=0)
+            rp_df[f"RP{rp}_crops_km2_{THRESH_SUFFIX}"] = [s["sum"] * 0.01 if s["sum"] is not None else 0 for s in stats]
+
+            context.info(f"Processed flooded crops >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
+        else:
+            context.warning(f"Crops TIF not found at {crops_tif_path}, skipping crops processing.")
+            rp_df[f"RP{rp}_crops_km2_{THRESH_SUFFIX}"] = 0
 
         # ---- Flooded population ----
         for label in indicators:
@@ -375,10 +395,12 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         final_df.drop(columns=drop_cols, inplace=True)
     numeric_cols = final_df.select_dtypes(include=["float", "int"]).columns
     crops_cols = [c for c in final_df.columns if "_crops_" in c]
-    int_cols = [c for c in numeric_cols if c not in crops_cols]
+    ratio_cols = [c for c in final_df.columns if "dependency_ratio" in c]
+    float_cols = crops_cols + ratio_cols
+    int_cols = [c for c in numeric_cols if c not in float_cols]
     final_df[int_cols] = final_df[int_cols].fillna(0).round(0).astype(int)
-    if crops_cols:
-        final_df[crops_cols] = final_df[crops_cols].fillna(0)
+    if float_cols:
+        final_df[float_cols] = final_df[float_cols].fillna(0).round(2)
     output_dir.mkdir(parents=True, exist_ok=True)
     final_df.to_csv(out_csv, index=False)
     context.info(f"Flooded population, crops & facilities CSV written to {out_csv}")

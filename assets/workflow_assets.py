@@ -514,7 +514,7 @@ def exposure_flood_asset(context, boundary_asset: str) -> list[str]:
 
 
 @asset(
-    deps=["demographics_asset", "facilities_asset"],
+    deps=["demographics_asset", "facilities_asset", "crops_asset"],
     partitions_def=country_partitions,
     ins={"boundary_asset": AssetIn()},
 )
