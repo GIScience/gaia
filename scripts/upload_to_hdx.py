@@ -139,9 +139,11 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 - **Coping Capacity (`{country_code}_ADM2_coping`)**  
 - **Demographics (`{country_code}_ADM2_demographics`)**  
 - **Rural Population (`{country_code}_ADM2_rural_population`)**  
+- **Rural Accessibility Index (RAI) (`{country_code}_ADM2_rai`)**  
 - **Vulnerability (`{country_code}_ADM2_vulnerability`)**  
 - **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**  
 {("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
+- **Evacuability (`{country_code}_ADM2_evacuability`)**
 
 <p>&nbsp;</p>
 <p>&nbsp;</p>
@@ -175,7 +177,7 @@ Data Source: [OpenStreetMap (OSM)](https://www.openstreetmap.org)
 ---
 
 #### **Coping Capacity (`{country_code}_ADM2_coping`)**
-Combines **Access to Services** and **Facilities** data to represent a district’s coping capacity.
+Combines **Access to Services**, **Facilities**, **Evacuability**, and **Rural Accessibility Index (RAI)** data to represent a district’s coping capacity.
 
 ---
 
@@ -207,6 +209,18 @@ Data Source: [Global Human Settlement Layer (GHSL)](https://human-settlement.eme
 
 ---
 
+#### **Rural Accessibility Index (RAI) (`{country_code}_ADM2_rai`)**
+Percentage of rural population living within 2 km of a paved road. Results are provided for multiple demographic groups and as a dependency ratio for the accessible rural population.
+
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **rural_access_total_pop**, **rural_access_female_pop**, **rural_access_children_u5**, **rural_access_female_u5**, **rural_access_elderly**, **rural_access_pop_u15**, **rural_access_female_u15**, **rural_access_wra_pop**, **rural_access_dependents**, **rural_access_working** – Population in rural areas within 2 km of a paved road
+- **rural_access_dependency_ratio** – Dependency ratio within accessible rural areas
+- **RAI_total_pop**, **RAI_female_pop**, **RAI_children_u5**, **RAI_female_u5**, **RAI_elderly**, **RAI_pop_u15**, **RAI_female_u15**, **RAI_wra_pop** – Rural Accessibility Index (%) per demographic group
+
+Data Source: [Mapillary](https://www.mapillary.com/) / [Planet](https://planet.com/) road surface classification
+
+---
+
 #### **Vulnerability (`{country_code}_ADM2_vulnerability`)**
 Combines **Demographics** and **Rural Population** indicators.
 
@@ -226,9 +240,25 @@ Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/col
 
 {cyclone_section}
 
+#### **Evacuability (`{country_code}_ADM2_evacuability`)**
+Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the nearest safe zone, computed using least-cost path analysis on a motorized friction surface.
+
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **RP_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from flooded areas to safe zones (per return period)
+- **RP_pixels_at_risk** – Number of flooded pixels with computed travel time
+- **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from cyclone-affected areas to safe zones
+- **kt34_pixels_at_risk** – Number of cyclone-affected pixels with computed travel time
+
+Data Source: [HeiGIT motorized friction surface](https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/2020_motorized_friction_surface_cog.tif)
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+---
+
 ### **QGIS Plugin Risk Assessment Inputs**
 
-- **Coping Capacity** = Access + Facilities  
+- **Coping Capacity** = Access + Facilities + Evacuability + RAI  
 - **Vulnerability** = Demographics + Rural Population  
 - **Exposure** = Vulnerable Population + Facilities exposed to Floods{" and Cyclones" if include_cyclone else ""}
 
