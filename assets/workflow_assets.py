@@ -1127,7 +1127,26 @@ def prep_visualization_asset(context) -> list[str]:
     # Standardize schema
     gdf["ADM_PCODE"] = gdf[pcode_field]
 
-    gdf = gdf[[pcode_field, "ADM_PCODE", "geometry"]]
+    # Detect the name column (e.g. ADM2_EN, ADM2_NAME, adm2_en, adm2_name)
+    level_num = level[-1]
+    name_col = next(
+        (
+            c
+            for c in gdf.columns
+            if level_num in c and ("en" in c.lower() or "name" in c.lower())
+        ),
+        None,
+    )
+
+    name_field = f"{level}_NAME"
+    keep_cols = [pcode_field, "ADM_PCODE"]
+    if name_col:
+        gdf[name_field] = gdf[name_col]
+        keep_cols.append(name_field)
+        context.log.info(f"[{country_code}] Using '{name_col}' as {name_field}")
+
+    keep_cols.append("geometry")
+    gdf = gdf[keep_cols]
 
     if gdf.crs is None or gdf.crs.to_epsg() != 4326:
         gdf = gdf.to_crs(epsg=4326)
