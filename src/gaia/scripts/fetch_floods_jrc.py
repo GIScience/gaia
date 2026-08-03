@@ -11,26 +11,16 @@ from rasterstats import zonal_stats
 from rasterio.enums import Resampling
 import pandas as pd
 import rioxarray
-import yaml
 from shapely.geometry import mapping
 from pathlib import Path
 
-from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
-from scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
+from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
+from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
 
-ASSET_CONFIG_YAML_PATH = os.path.join(os.getcwd(), "configs", "assets_config.yaml")
-with open(ASSET_CONFIG_YAML_PATH) as _fp:
-    _asset_config = yaml.safe_load(_fp)
-
-BASE_URL_TEMPLATE = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-GLOFAS/flood_hazard/{rp}/"
-ALLOWED_RPS = _asset_config.get("setup", {}).get("rps", [])
-
-try:
-    FLOOD_THRESHOLD = float(_asset_config["setup"]["flood_threshold"])
-except KeyError:
-    raise KeyError("Missing 'setup.flood_threshold' in assets_config.yaml")
-
-THRESH_SUFFIX = f"{int(FLOOD_THRESHOLD*100)}cm"
+BASE_URL_TEMPLATE = (
+    "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-GLOFAS/flood_hazard/{rp}/"
+)
+ALLOWED_RPS = ["10", "50", "100", "500"]
 
 
 def parse_listing(rp):
@@ -41,7 +31,7 @@ def parse_listing(rp):
 
 
 def tile_bounds_from_filename(fname):
-    m = re.search(r'_(N|S)(\d+)_([EW])(\d+)_RP', fname)
+    m = re.search(r"_(N|S)(\d+)_([EW])(\d+)_RP", fname)
     if not m:
         return None
     lat_sign = 1 if m.group(1) == "N" else -1
@@ -90,7 +80,9 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
         context.info(f"Clipped raster already exists: {clipped_path}, skipping ...")
         return clipped_path
 
-    boundary_file = os.path.join("data", country_code, f"{country_code}_{admin_level}.geojson")
+    boundary_file = os.path.join(
+        "data", country_code, f"{country_code}_{admin_level}.geojson"
+    )
     if not os.path.exists(boundary_file):
         raise FileNotFoundError(f"Boundary file not found: {boundary_file}")
 
@@ -102,7 +94,11 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
     files = parse_listing(rp)
     context.info(f"Found {len(files)} tiles on server for RP{rp}.")
 
-    selected = [f for f in files if (tb := tile_bounds_from_filename(f)) and bbox_intersects(tb, geom_bbox)]
+    selected = [
+        f
+        for f in files
+        if (tb := tile_bounds_from_filename(f)) and bbox_intersects(tb, geom_bbox)
+    ]
     context.info(f"Selected {len(selected)} tiles to download.")
 
     tile_paths = [download_file(context, f, temporary_dir, rp) for f in selected]
@@ -117,13 +113,15 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
     mosaic, out_trans = merge(srcs)
 
     out_meta = srcs[0].meta.copy()
-    out_meta.update({
-        "driver": "GTiff",
-        "height": mosaic.shape[1],
-        "width": mosaic.shape[2],
-        "transform": out_trans,
-        "compress": "lzw"
-    })
+    out_meta.update(
+        {
+            "driver": "GTiff",
+            "height": mosaic.shape[1],
+            "width": mosaic.shape[2],
+            "transform": out_trans,
+            "compress": "lzw",
+        }
+    )
 
     context.info("Clipping merged raster to boundary...")
     if gdf.crs != srcs[0].crs:
@@ -135,11 +133,13 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
             dataset.write(mosaic)
             out_image, out_transform = mask(dataset, geoms, crop=True)
 
-    out_meta.update({
-        "height": out_image.shape[1],
-        "width": out_image.shape[2],
-        "transform": out_transform
-    })
+    out_meta.update(
+        {
+            "height": out_image.shape[1],
+            "width": out_image.shape[2],
+            "transform": out_transform,
+        }
+    )
 
     with rasterio.open(clipped_path, "w", **out_meta) as dest:
         dest.write(out_image)
@@ -152,7 +152,17 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
     return clipped_path
 
 
-def process_flood_impact(context, country_code, rps, gdf, admin_level, output_dir):
+def process_flood_impact(
+    context,
+    country_code,
+    rps,
+    gdf,
+    admin_level,
+    output_dir,
+    flood_threshold=0.3,
+    api_choice="ohsome-api",
+    crop_years=None,
+):
     """
     Process flooded population, crops, and facilities for all RPs of a given
     country/admin_level. Generates a single CSV with columns for each RP,
@@ -166,6 +176,11 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     out_csv = output_dir / f"{country_code}_{admin_level}_flood_exposure.csv"
     temp_dir = Path("data") / country_code / "Temporary"
 
+    THRESH_SUFFIX = f"{int(flood_threshold * 100)}cm"
+
+    if crop_years is None:
+        crop_years = []
+
     # Load existing CSV if present, to append missing RPs
     if out_csv.exists():
         context.info(f"CSV exists: {out_csv}, will append missing RPs")
@@ -176,17 +191,36 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     # Ensure WorldPop files exist
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
-    indicators = ["female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
+    indicators = [
+        "female_pop",
+        "children_u5",
+        "female_u5",
+        "elderly",
+        "pop_u15",
+        "female_u15",
+        "wra_pop",
+        "dep_dependents",
+        "dep_working",
+    ]
     tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
 
     # We will use this list to check expected columns so we don't look for deleted columns
-    final_indicators = ["female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dependency_ratio"]
+    final_indicators = [
+        "female_pop",
+        "children_u5",
+        "female_u5",
+        "elderly",
+        "pop_u15",
+        "female_u15",
+        "wra_pop",
+        "dependency_ratio",
+    ]
 
     # Ensure facilities exist
     context.info(f"Ensuring facility raw geometries exist in {temp_dir}...")
     base_path = Path("data") / country_code
     boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-    api_choice = _asset_config.get("facilities_asset", {}).get("api", "").lower()
+    api_choice = api_choice.lower()
 
     if api_choice == "ohsome-api":
         summary_path = fetch_ohsome(
@@ -209,13 +243,14 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
     facility_categories = ["education", "hospitals", "primary_healthcare"]
     for category in facility_categories:
         if category not in geojsons_map:
-            geojsons_map[category] = base_path / f"Temporary/{country_code}_{category}_raw.geojson"
-
-    crop_years = _asset_config.get("crops_asset", {}).get("years", [])
+            geojsons_map[category] = (
+                base_path / f"Temporary/{country_code}_{category}_raw.geojson"
+            )
 
     if crop_years:
         try:
             import ee
+
             ee.Initialize(project="aa-automatization")
             ee_initialized = True
         except Exception:
@@ -225,19 +260,26 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
         context.info(f"Processing RP{rp}...")
 
         # Skip RP if all expected columns already exist
-        expected_cols = [
-            f"RP{rp}_{label}_{suffix}" for label in final_indicators for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_{cat}_{suffix}_pct" for cat in facility_categories for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_{cat}_{suffix}_count" for cat in facility_categories for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_crops_{suffix}_km2" for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_crops_{suffix}_areapct" for suffix in [THRESH_SUFFIX]
-        ] + [
-            f"RP{rp}_crops_{suffix}_croppct" for suffix in [THRESH_SUFFIX]
-        ]
+        expected_cols = (
+            [
+                f"RP{rp}_{label}_{suffix}"
+                for label in final_indicators
+                for suffix in [THRESH_SUFFIX]
+            ]
+            + [
+                f"RP{rp}_{cat}_{suffix}_pct"
+                for cat in facility_categories
+                for suffix in [THRESH_SUFFIX]
+            ]
+            + [
+                f"RP{rp}_{cat}_{suffix}_count"
+                for cat in facility_categories
+                for suffix in [THRESH_SUFFIX]
+            ]
+            + [f"RP{rp}_crops_{suffix}_km2" for suffix in [THRESH_SUFFIX]]
+            + [f"RP{rp}_crops_{suffix}_areapct" for suffix in [THRESH_SUFFIX]]
+            + [f"RP{rp}_crops_{suffix}_croppct" for suffix in [THRESH_SUFFIX]]
+        )
         if all(col in final_df.columns for col in expected_cols):
             context.info(f"RP{rp} already processed, skipping...")
             continue
@@ -266,7 +308,7 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
 
                     glofas = ee.ImageCollection("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
                     flood_img = glofas.select(rp_band).first()
-                    flood_mask = flood_img.gt(FLOOD_THRESHOLD).rename("flooded")
+                    flood_mask = flood_img.gt(flood_threshold).rename("flooded")
 
                     dw = ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
                     chunk_size = 5
@@ -282,7 +324,9 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
                             geom = feature.geometry()
 
                             crop_coll = (
-                                dw.filterDate(f"{crop_year}-01-01", f"{crop_year}-12-31")
+                                dw.filterDate(
+                                    f"{crop_year}-01-01", f"{crop_year}-12-31"
+                                )
                                 .filterBounds(geom)
                                 .select("label")
                             )
@@ -294,36 +338,56 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
 
                             flooded_crop = crop_mask.updateMask(flood_mask)
 
-                            flooded_crop_area_m2 = flooded_crop.multiply(pixel_area).reduceRegion(
-                                reducer=ee.Reducer.sum(), geometry=geom,
-                                scale=90, bestEffort=True,
-                            ).get("crop")
-                            flooded_crop_km2 = ee.Number(flooded_crop_area_m2).divide(1e6)
+                            flooded_crop_area_m2 = (
+                                flooded_crop.multiply(pixel_area)
+                                .reduceRegion(
+                                    reducer=ee.Reducer.sum(),
+                                    geometry=geom,
+                                    scale=90,
+                                    bestEffort=True,
+                                )
+                                .get("crop")
+                            )
+                            flooded_crop_km2 = ee.Number(flooded_crop_area_m2).divide(
+                                1e6
+                            )
 
-                            total_crop_area_m2 = crop_mask.multiply(pixel_area).reduceRegion(
-                                reducer=ee.Reducer.sum(), geometry=geom,
-                                scale=10, bestEffort=True,
-                            ).get("crop")
+                            total_crop_area_m2 = (
+                                crop_mask.multiply(pixel_area)
+                                .reduceRegion(
+                                    reducer=ee.Reducer.sum(),
+                                    geometry=geom,
+                                    scale=10,
+                                    bestEffort=True,
+                                )
+                                .get("crop")
+                            )
                             total_crop_km2 = ee.Number(total_crop_area_m2).divide(1e6)
 
-                            areapct = flooded_crop_km2.divide(admin_area_km2).multiply(100)
+                            areapct = flooded_crop_km2.divide(admin_area_km2).multiply(
+                                100
+                            )
                             croppct = ee.Algorithms.If(
                                 total_crop_km2.gt(0),
                                 flooded_crop_km2.divide(total_crop_km2).multiply(100),
                                 0,
                             )
 
-                            return feature.set({
-                                "crop_km2": flooded_crop_km2,
-                                "crop_areapct": areapct,
-                                "crop_croppct": croppct,
-                            })
+                            return feature.set(
+                                {
+                                    "crop_km2": flooded_crop_km2,
+                                    "crop_areapct": areapct,
+                                    "crop_croppct": croppct,
+                                }
+                            )
 
                         fc_stats = fc.map(add_flood_crop_stats)
                         fc_out = fc_stats.select(
                             propertySelectors=[
-                                f"{admin_level}_PCODE", "crop_km2",
-                                "crop_areapct", "crop_croppct",
+                                f"{admin_level}_PCODE",
+                                "crop_km2",
+                                "crop_areapct",
+                                "crop_croppct",
                             ],
                             retainGeometry=False,
                         )
@@ -333,28 +397,34 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
 
                         df_chunk = pd.read_csv(temp_csv)
                         for c in ["crop_km2", "crop_areapct", "crop_croppct"]:
-                            df_chunk[c] = pd.to_numeric(df_chunk[c], errors="coerce").fillna(0)
+                            df_chunk[c] = pd.to_numeric(
+                                df_chunk[c], errors="coerce"
+                            ).fillna(0)
 
                         for _, row_cf in df_chunk.iterrows():
                             pcode = row_cf[f"{admin_level}_PCODE"]
                             match = rp_df[rp_df[f"{admin_level}_PCODE"] == pcode].index
                             if not match.empty:
                                 i = match[0]
-                                rp_df.loc[i, f"RP{rp}_crops_{THRESH_SUFFIX}_km2"] = round(
-                                    row_cf["crop_km2"], 2
+                                rp_df.loc[i, f"RP{rp}_crops_{THRESH_SUFFIX}_km2"] = (
+                                    round(row_cf["crop_km2"], 2)
                                 )
-                                rp_df.loc[i, f"RP{rp}_crops_{THRESH_SUFFIX}_areapct"] = round(
-                                    row_cf["crop_areapct"], 2
-                                )
-                                rp_df.loc[i, f"RP{rp}_crops_{THRESH_SUFFIX}_croppct"] = round(
-                                    row_cf["crop_croppct"], 2
-                                )
+                                rp_df.loc[
+                                    i, f"RP{rp}_crops_{THRESH_SUFFIX}_areapct"
+                                ] = round(row_cf["crop_areapct"], 2)
+                                rp_df.loc[
+                                    i, f"RP{rp}_crops_{THRESH_SUFFIX}_croppct"
+                                ] = round(row_cf["crop_croppct"], 2)
 
                         os.remove(temp_csv)
                         start_idx = end_idx
-                        context.info(f"Crops chunk {start_idx // chunk_size}/{ -(-len(gdf) // chunk_size)} done for RP{rp}")
+                        context.info(
+                            f"Crops chunk {start_idx // chunk_size}/{-(-len(gdf) // chunk_size)} done for RP{rp}"
+                        )
 
-                    context.info(f"Processed flooded crops >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
+                    context.info(
+                        f"Processed flooded crops >{flood_threshold} m ({THRESH_SUFFIX})"
+                    )
 
                 except Exception as e:
                     context.warning(f"Flooded crops computation failed: {e}")
@@ -367,30 +437,47 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
             pop_raster_path = tif_map[label]
             pop_raster = rioxarray.open_rasterio(pop_raster_path, masked=True).squeeze()
 
-            flood_aligned = flood.rio.reproject_match(pop_raster, resampling=Resampling.bilinear)
-            flood_mask = (flood_aligned > FLOOD_THRESHOLD).astype("float32")
+            flood_aligned = flood.rio.reproject_match(
+                pop_raster, resampling=Resampling.bilinear
+            )
+            flood_mask = (flood_aligned > flood_threshold).astype("float32")
             flooded_pop = pop_raster * flood_mask
 
             tmp_flooded = temp_dir / f"tmp_flooded_{label}_RP{rp}_{THRESH_SUFFIX}.tif"
             with rasterio.open(pop_raster_path) as src:
                 meta = src.meta.copy()
-                meta.update(compress="lzw", tiled=True,
-                            bigtiff="yes" if src.width*src.height > 2**32 else "no")
+                meta.update(
+                    compress="lzw",
+                    tiled=True,
+                    bigtiff="yes" if src.width * src.height > 2**32 else "no",
+                )
             with rasterio.open(tmp_flooded, "w", **meta) as dst:
                 dst.write(flooded_pop.values, 1)
 
             stats = zonal_stats(gdf, tmp_flooded, stats="sum", nodata=0)
-            rp_df[f"RP{rp}_{label}_{THRESH_SUFFIX}"] = [s["sum"] if s["sum"] is not None else 0 for s in stats]
+            rp_df[f"RP{rp}_{label}_{THRESH_SUFFIX}"] = [
+                s["sum"] if s["sum"] is not None else 0 for s in stats
+            ]
 
-            context.info(f"Processed flooded population for {label} >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
+            context.info(
+                f"Processed flooded population for {label} >{flood_threshold} m ({THRESH_SUFFIX})"
+            )
 
         # Calculate mathematical dependency ratio for the flooded population
         dep_col_num = rp_df[f"RP{rp}_dep_dependents_{THRESH_SUFFIX}"]
         dep_col_den = rp_df[f"RP{rp}_dep_working_{THRESH_SUFFIX}"].replace(0, pd.NA)
-        rp_df[f"RP{rp}_dependency_ratio_{THRESH_SUFFIX}"] = ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
-        
+        rp_df[f"RP{rp}_dependency_ratio_{THRESH_SUFFIX}"] = (
+            ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
+        )
+
         # Drop the intermediate components
-        rp_df.drop(columns=[f"RP{rp}_dep_dependents_{THRESH_SUFFIX}", f"RP{rp}_dep_working_{THRESH_SUFFIX}"], inplace=True)
+        rp_df.drop(
+            columns=[
+                f"RP{rp}_dep_dependents_{THRESH_SUFFIX}",
+                f"RP{rp}_dep_working_{THRESH_SUFFIX}",
+            ],
+            inplace=True,
+        )
 
         # ---- Flooded facilities ----
         for category, filepath in geojsons_map.items():
@@ -412,26 +499,44 @@ def process_flood_impact(context, country_code, rps, gdf, admin_level, output_di
             if facilities.crs != flood.rio.crs:
                 facilities = facilities.to_crs(flood.rio.crs)
 
-            coords = [(x, y) for x, y in zip(facilities.geometry.x, facilities.geometry.y)]
+            coords = [
+                (x, y) for x, y in zip(facilities.geometry.x, facilities.geometry.y)
+            ]
             with rasterio.open(clipped_path) as src:
                 values = [v[0] for v in src.sample(coords)]
-            facilities["flooded"] = [1 if v > FLOOD_THRESHOLD else 0 for v in values]
+            facilities["flooded"] = [1 if v > flood_threshold else 0 for v in values]
 
             joined = gpd.sjoin(
-                facilities, gdf[[f"{admin_level}_PCODE", "geometry"]],
-                how="inner", predicate="within"
+                facilities,
+                gdf[[f"{admin_level}_PCODE", "geometry"]],
+                how="inner",
+                predicate="within",
             )
-            grouped = joined.groupby(f"{admin_level}_PCODE")["flooded"].agg(["mean", "sum"]).reset_index()
+            grouped = (
+                joined.groupby(f"{admin_level}_PCODE")["flooded"]
+                .agg(["mean", "sum"])
+                .reset_index()
+            )
 
-            grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = (grouped["mean"] * 100).round(1)
-            grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = grouped["sum"].astype(int)
+            grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = (
+                grouped["mean"] * 100
+            ).round(1)
+            grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = grouped["sum"].astype(
+                int
+            )
             grouped = grouped.drop(columns=["mean", "sum"])
 
             rp_df = rp_df.merge(grouped, on=f"{admin_level}_PCODE", how="left")
-            rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"].fillna(0)
-            rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"].fillna(0).astype(int)
+            rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = rp_df[
+                f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"
+            ].fillna(0)
+            rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = (
+                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"].fillna(0).astype(int)
+            )
 
-            context.info(f"Processed flooded facilities for {category} >{FLOOD_THRESHOLD} m ({THRESH_SUFFIX})")
+            context.info(
+                f"Processed flooded facilities for {category} >{flood_threshold} m ({THRESH_SUFFIX})"
+            )
 
         final_df = final_df.merge(rp_df, on=f"{admin_level}_PCODE", how="left")
         context.info(f"Processed RP{rp}")
@@ -458,12 +563,12 @@ if __name__ == "__main__":
         "admin_level",
         nargs="?",
         default="ADM0",
-        help="Administrative level (ADM0, ADM1, ADM2, etc.). Default is ADM0"
+        help="Administrative level (ADM0, ADM1, ADM2, etc.). Default is ADM0",
     )
     parser.add_argument(
         "--rp",
         help=f"Return period (allowed: {', '.join(ALLOWED_RPS)}). If omitted, all allowed RPs are processed.",
-        default=None
+        default=None,
     )
     args = parser.parse_args()
 
@@ -476,7 +581,9 @@ if __name__ == "__main__":
     rps_to_process = [args.rp.strip()] if args.rp else ALLOWED_RPS
     for rp in rps_to_process:
         if rp not in ALLOWED_RPS:
-            raise ValueError(f"Invalid RP '{rp}'. Allowed values: {', '.join(ALLOWED_RPS)}")
+            raise ValueError(
+                f"Invalid RP '{rp}'. Allowed values: {', '.join(ALLOWED_RPS)}"
+            )
 
         log.info("=== Processing %s, %s, RP%s ===", country_code, admin_level, rp)
 
@@ -484,7 +591,9 @@ if __name__ == "__main__":
 
         temporary_dir = f"data/{country_code}/Temporary"
         output_dir = f"data/{country_code}/Output"
-        gdf_path = os.path.join("data", country_code, f"{country_code}_{admin_level}.geojson")
+        gdf_path = os.path.join(
+            "data", country_code, f"{country_code}_{admin_level}.geojson"
+        )
         if not os.path.exists(gdf_path):
             raise FileNotFoundError(f"Boundary file not found: {gdf_path}")
         gdf = gpd.read_file(gdf_path)
@@ -495,5 +604,5 @@ if __name__ == "__main__":
             rps=[rp],
             gdf=gdf,
             admin_level=admin_level,
-            output_dir=output_dir
+            output_dir=output_dir,
         )

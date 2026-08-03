@@ -1,10 +1,10 @@
 """
 calculate_evacuatability.py
 
-Calculates an "Evacuatability" indicator: the travel time (in minutes) for 
+Calculates an "Evacuatability" indicator: the travel time (in minutes) for
 at-risk (flooded / cyclone-affected) population to reach the nearest safe zone.
 
-Uses MCP_Geometric from scikit-image for least-cost path analysis on a 
+Uses MCP_Geometric from scikit-image for least-cost path analysis on a
 friction surface, replicating GEE's cumulativeCost logic in pure Python.
 
 Contains two main entry points for Dagster assets:
@@ -29,16 +29,9 @@ from rasterstats import zonal_stats
 from skimage.graph import MCP_Geometric
 from pathlib import Path
 import tempfile
-import yaml
 
-# Load config for flood threshold
-ASSET_CONFIG_YAML_PATH = os.path.join(os.getcwd(), "configs", "assets_config.yaml")
-try:
-    with open(ASSET_CONFIG_YAML_PATH) as _fp:
-        _asset_config = yaml.safe_load(_fp)
-    FLOOD_THRESHOLD = float(_asset_config["setup"]["flood_threshold"])
-except (FileNotFoundError, KeyError):
-    FLOOD_THRESHOLD = 0.3  # default: 30cm
+# Default flood threshold (overridable per call via flood_threshold)
+FLOOD_THRESHOLD = 0.3  # default: 30cm
 
 # Remote friction surface COG URL
 FRICTION_COG_URL = "https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/2020_motorized_friction_surface_cog.tif"
@@ -52,11 +45,11 @@ MAX_MCP_SOURCES = 20000  # Max safe zone pixels to sample for MCP
 DEMOGRAPHIC_INDICATORS = [
     "total_pop",
     "children_u5",
-    "elderly", 
+    "elderly",
     "female_pop",
     "female_u5",
     "female_u15",
-    "pop_u15"
+    "pop_u15",
 ]
 
 
@@ -72,35 +65,36 @@ def find_population_rasters(temp_dir, country_code):
     return pop_rasters
 
 
-def downsample_array(arr, scale_factor, method='mean'):
+def downsample_array(arr, scale_factor, method="mean"):
     from scipy.ndimage import zoom
+
     if scale_factor <= 1:
         return arr
     scale_factor = int(round(scale_factor))
-    if method == 'sum':
+    if method == "sum":
         h, w = arr.shape
         new_h = (h // scale_factor) * scale_factor
         new_w = (w // scale_factor) * scale_factor
         trimmed = arr[:new_h, :new_w]
         reshaped = trimmed.reshape(
-            new_h // scale_factor, scale_factor,
-            new_w // scale_factor, scale_factor
+            new_h // scale_factor, scale_factor, new_w // scale_factor, scale_factor
         )
         result = np.nansum(reshaped, axis=(1, 3))
         return result.astype(arr.dtype)
-    elif method == 'mean':
-        return zoom(arr, 1/scale_factor, order=1)
-    elif method == 'max':
-        return zoom(arr.astype(float), 1/scale_factor, order=0) > 0.5
+    elif method == "mean":
+        return zoom(arr, 1 / scale_factor, order=1)
+    elif method == "max":
+        return zoom(arr.astype(float), 1 / scale_factor, order=0) > 0.5
     else:
-        return zoom(arr, 1/scale_factor, order=0)
+        return zoom(arr, 1 / scale_factor, order=0)
 
 
-def upsample_array(arr, target_shape, method='bilinear'):
+def upsample_array(arr, target_shape, method="bilinear"):
     from scipy.ndimage import zoom
+
     scale_y = target_shape[0] / arr.shape[0]
     scale_x = target_shape[1] / arr.shape[1]
-    order = 1 if method == 'bilinear' else 0
+    order = 1 if method == "bilinear" else 0
     return zoom(arr, (scale_y, scale_x), order=order)
 
 
@@ -115,13 +109,15 @@ def load_local_raster(path, band=1):
     return arr, profile, nodata, bounds, transform, crs
 
 
-def fetch_friction_window(bounds, target_crs, target_transform, target_shape,
-                          friction_url=FRICTION_COG_URL):
+def fetch_friction_window(
+    bounds, target_crs, target_transform, target_shape, friction_url=FRICTION_COG_URL
+):
     with rasterio.open(friction_url) as src:
         friction_crs = src.crs
         friction_nodata = src.nodata
         if target_crs != friction_crs:
             from rasterio.warp import transform_bounds
+
             src_bounds = transform_bounds(target_crs, friction_crs, *bounds)
         else:
             src_bounds = bounds
@@ -143,7 +139,7 @@ def fetch_friction_window(bounds, target_crs, target_transform, target_shape,
         dst_transform=target_transform,
         dst_crs=target_crs,
         dst_nodata=np.nan,
-        resampling=Resampling.bilinear
+        resampling=Resampling.bilinear,
     )
     return friction_aligned
 
@@ -200,8 +196,16 @@ def get_pixel_size_meters(transform, crs):
     return pixel_size_m
 
 
-def aggregate_by_admin(travel_time_arr, at_risk_mask, pop_rasters,
-                       gdf, admin_level, transform, crs, output_path):
+def aggregate_by_admin(
+    travel_time_arr,
+    at_risk_mask,
+    pop_rasters,
+    gdf,
+    admin_level,
+    transform,
+    crs,
+    output_path,
+):
     id_col = f"{admin_level}_PCODE"
     if id_col not in gdf.columns:
         raise ValueError(f"Column {id_col} not found in boundaries")
@@ -212,56 +216,74 @@ def aggregate_by_admin(travel_time_arr, at_risk_mask, pop_rasters,
     with tempfile.TemporaryDirectory() as tmpdir:
         tt_path = os.path.join(tmpdir, "travel_time.tif")
         with rasterio.open(
-            tt_path, 'w',
-            driver='GTiff',
+            tt_path,
+            "w",
+            driver="GTiff",
             height=travel_time_at_risk.shape[0],
             width=travel_time_at_risk.shape[1],
-            count=1, dtype=np.float32,
-            crs=crs, transform=transform, nodata=np.nan
+            count=1,
+            dtype=np.float32,
+            crs=crs,
+            transform=transform,
+            nodata=np.nan,
         ) as dst:
             dst.write(travel_time_at_risk, 1)
-        tt_stats = zonal_stats(gdf, tt_path, stats=['mean', 'max', 'median', 'count'], nodata=np.nan)
+        tt_stats = zonal_stats(
+            gdf, tt_path, stats=["mean", "max", "median", "count"], nodata=np.nan
+        )
         pop_stats_all = {}
         for indicator, (pop_arr, pop_nodata) in pop_rasters.items():
             if at_risk_mask.shape != pop_arr.shape:
-                mask_resized = upsample_array(at_risk_mask.astype(np.float32), pop_arr.shape, method='nearest') > 0.5
+                mask_resized = (
+                    upsample_array(
+                        at_risk_mask.astype(np.float32), pop_arr.shape, method="nearest"
+                    )
+                    > 0.5
+                )
             else:
                 mask_resized = at_risk_mask
             pop_at_risk = pop_arr.copy()
             pop_at_risk[~mask_resized] = 0
             pop_path = os.path.join(tmpdir, f"pop_{indicator}.tif")
             with rasterio.open(
-                pop_path, 'w',
-                driver='GTiff',
+                pop_path,
+                "w",
+                driver="GTiff",
                 height=pop_at_risk.shape[0],
                 width=pop_at_risk.shape[1],
-                count=1, dtype=np.float32,
-                crs=crs, transform=transform, nodata=0
+                count=1,
+                dtype=np.float32,
+                crs=crs,
+                transform=transform,
+                nodata=0,
             ) as dst:
                 dst.write(pop_at_risk, 1)
-            pop_stats_all[indicator] = zonal_stats(gdf, pop_path, stats=['sum'], nodata=0)
+            pop_stats_all[indicator] = zonal_stats(
+                gdf, pop_path, stats=["sum"], nodata=0
+            )
     results = []
     for i, (idx, row) in enumerate(gdf.iterrows()):
         pcode = row[id_col]
         tt = tt_stats[i]
         record = {
             id_col: pcode,
-            'evac_time_mean_min': round(tt['mean'], 1) if tt['mean'] else None,
-            'evac_time_max_min': round(tt['max'], 1) if tt['max'] else None,
-            'evac_time_median_min': round(tt['median'], 1) if tt['median'] else None,
-            'pixels_at_risk': tt['count'] if tt['count'] else 0,
+            "evac_time_mean_min": round(tt["mean"], 1) if tt["mean"] else None,
+            "evac_time_max_min": round(tt["max"], 1) if tt["max"] else None,
+            "evac_time_median_min": round(tt["median"], 1) if tt["median"] else None,
+            "pixels_at_risk": tt["count"] if tt["count"] else 0,
         }
         for indicator, pop_stats in pop_stats_all.items():
             pop = pop_stats[i]
-            record[f'pop_at_risk_{indicator}'] = int(pop['sum']) if pop['sum'] else 0
+            record[f"pop_at_risk_{indicator}"] = int(pop["sum"]) if pop["sum"] else 0
         results.append(record)
     df = pd.DataFrame(results)
     df.to_csv(output_path, index=False)
     return df
 
 
-def process_evacuatability(country_code, admin_level='ADM2', rp='100',
-                           flood_threshold=None, context=None):
+def process_evacuatability(
+    country_code, admin_level="ADM2", rp="100", flood_threshold=None, context=None
+):
     country_code = country_code.upper()
     admin_level = admin_level.upper()
     threshold = flood_threshold if flood_threshold else FLOOD_THRESHOLD
@@ -274,7 +296,9 @@ def process_evacuatability(country_code, admin_level='ADM2', rp='100',
     output_dir.mkdir(parents=True, exist_ok=True)
     flood_path = temp_dir / f"{country_code}_flooded_RP{rp}.tif"
     boundary_path = base_dir / f"{country_code}_{admin_level}.geojson"
-    output_csv = output_dir / f"{country_code}_evacuatability_by_{admin_level}_RP{rp}.csv"
+    output_csv = (
+        output_dir / f"{country_code}_evacuatability_by_{admin_level}_RP{rp}.csv"
+    )
     output_tif = output_dir / f"{country_code}_travel_time_RP{rp}.tif"
     if not flood_path.exists():
         raise FileNotFoundError(f"Flood raster not found: {flood_path}")
@@ -283,8 +307,12 @@ def process_evacuatability(country_code, admin_level='ADM2', rp='100',
     pop_raster_paths = find_population_rasters(temp_dir, country_code)
     if not pop_raster_paths:
         raise FileNotFoundError(f"No population rasters found in {temp_dir}")
-    log(f"  Found {len(pop_raster_paths)} demographic indicators: {list(pop_raster_paths.keys())}")
-    flood_arr, flood_profile, flood_nodata, bounds, transform, crs = load_local_raster(flood_path)
+    log(
+        f"  Found {len(pop_raster_paths)} demographic indicators: {list(pop_raster_paths.keys())}"
+    )
+    flood_arr, flood_profile, flood_nodata, bounds, transform, crs = load_local_raster(
+        flood_path
+    )
     if flood_nodata is not None:
         flood_arr[flood_arr == flood_nodata] = np.nan
     log("Loading population rasters...")
@@ -298,7 +326,7 @@ def process_evacuatability(country_code, admin_level='ADM2', rp='100',
         bounds=(bounds.left, bounds.bottom, bounds.right, bounds.top),
         target_crs=crs,
         target_transform=transform,
-        target_shape=flood_arr.shape
+        target_shape=flood_arr.shape,
     )
     pixel_size_m = get_pixel_size_meters(transform, crs)
     total_pixels = flood_arr.size
@@ -306,34 +334,48 @@ def process_evacuatability(country_code, admin_level='ADM2', rp='100',
     scale_factor = 1
     if total_pixels > MAX_PIXELS_FOR_MCP:
         scale_by_pixels = np.sqrt(total_pixels / MAX_PIXELS_FOR_MCP)
-        scale_by_resolution = TARGET_RESOLUTION_M / pixel_size_m if pixel_size_m < TARGET_RESOLUTION_M else 1
+        scale_by_resolution = (
+            TARGET_RESOLUTION_M / pixel_size_m
+            if pixel_size_m < TARGET_RESOLUTION_M
+            else 1
+        )
         scale_factor = max(scale_by_pixels, scale_by_resolution)
-        flood_arr_ds = downsample_array(flood_arr, scale_factor, method='mean')
-        friction_arr_ds = downsample_array(friction_arr, scale_factor, method='mean')
+        flood_arr_ds = downsample_array(flood_arr, scale_factor, method="mean")
+        friction_arr_ds = downsample_array(friction_arr, scale_factor, method="mean")
         pixel_size_m_ds = pixel_size_m * scale_factor
     else:
         flood_arr_ds = flood_arr
         friction_arr_ds = friction_arr
         pixel_size_m_ds = pixel_size_m
-    cost_arr, safe_mask, at_risk_mask_ds = create_cost_surface(friction_arr_ds, flood_arr_ds, threshold)
+    cost_arr, safe_mask, at_risk_mask_ds = create_cost_surface(
+        friction_arr_ds, flood_arr_ds, threshold
+    )
     if at_risk_mask_ds.sum() == 0:
         log("  No at-risk areas found. Creating empty output.")
         gdf = gpd.read_file(boundary_path)
         id_col = f"{admin_level}_PCODE"
         empty_data = {id_col: gdf[id_col]}
-        empty_data['evac_time_mean_min'] = None
-        empty_data['evac_time_max_min'] = None
-        empty_data['evac_time_median_min'] = None
-        empty_data['pixels_at_risk'] = 0
+        empty_data["evac_time_mean_min"] = None
+        empty_data["evac_time_max_min"] = None
+        empty_data["evac_time_median_min"] = None
+        empty_data["pixels_at_risk"] = 0
         for indicator in pop_rasters.keys():
-            empty_data[f'pop_at_risk_{indicator}'] = 0
+            empty_data[f"pop_at_risk_{indicator}"] = 0
         df = pd.DataFrame(empty_data)
         df.to_csv(output_csv, index=False)
-        empty_travel_time = np.full(original_shape, np.nan, dtype='float32')
+        empty_travel_time = np.full(original_shape, np.nan, dtype="float32")
         with rasterio.open(
-            output_tif, 'w',
-            driver='GTiff', height=original_shape[0], width=original_shape[1],
-            count=1, dtype='float32', crs=crs, transform=transform, nodata=np.nan, compress='lzw'
+            output_tif,
+            "w",
+            driver="GTiff",
+            height=original_shape[0],
+            width=original_shape[1],
+            count=1,
+            dtype="float32",
+            crs=crs,
+            transform=transform,
+            nodata=np.nan,
+            compress="lzw",
         ) as dst:
             dst.write(empty_travel_time, 1)
         return str(output_csv), str(output_tif)
@@ -346,17 +388,30 @@ def process_evacuatability(country_code, admin_level='ADM2', rp='100',
         at_risk_mask = at_risk_mask_ds
     travel_time_output = np.where(at_risk_mask, travel_time, np.nan)
     with rasterio.open(
-        output_tif, 'w',
-        driver='GTiff', height=travel_time_output.shape[0], width=travel_time_output.shape[1],
-        count=1, dtype='float32', crs=crs, transform=transform, nodata=np.nan, compress='lzw'
+        output_tif,
+        "w",
+        driver="GTiff",
+        height=travel_time_output.shape[0],
+        width=travel_time_output.shape[1],
+        count=1,
+        dtype="float32",
+        crs=crs,
+        transform=transform,
+        nodata=np.nan,
+        compress="lzw",
     ) as dst:
-        dst.write(travel_time_output.astype('float32'), 1)
+        dst.write(travel_time_output.astype("float32"), 1)
         dst.set_band_description(1, f"Travel time to safe zone (minutes), RP{rp}")
     gdf = gpd.read_file(boundary_path)
     df = aggregate_by_admin(
-        travel_time_arr=travel_time, at_risk_mask=at_risk_mask,
-        pop_rasters=pop_rasters, gdf=gdf, admin_level=admin_level,
-        transform=transform, crs=crs, output_path=output_csv
+        travel_time_arr=travel_time,
+        at_risk_mask=at_risk_mask,
+        pop_rasters=pop_rasters,
+        gdf=gdf,
+        admin_level=admin_level,
+        transform=transform,
+        crs=crs,
+        output_path=output_csv,
     )
     log(f"Evacuatability calculation complete for {country_code}")
     return str(output_csv), str(output_tif)
@@ -367,9 +422,14 @@ def process_evacuatability(country_code, admin_level='ADM2', rp='100',
 # for both flood and cyclone (if data exists).
 # =====================================================================
 
-def compute_evacuability_csv(context, country_code: str, admin_level: str,
-                              rps: list[str] | None = None,
-                              flood_threshold: float = None) -> str | None:
+
+def compute_evacuability_csv(
+    context,
+    country_code: str,
+    admin_level: str,
+    rps: list[str] | None = None,
+    flood_threshold: float = None,
+) -> str | None:
     """
     Compute evacuability for flood (all RPs) and cyclone (if raster exists)
     and write a single CSV with all evacuability columns.
@@ -379,7 +439,7 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
     Returns the path to the CSV, or None if no work was done.
     """
     threshold = flood_threshold if flood_threshold is not None else FLOOD_THRESHOLD
-    log = context.info if hasattr(context, 'info') else print
+    log = context.info if hasattr(context, "info") else print
 
     if rps is None:
         rps = []
@@ -409,13 +469,17 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
             continue
 
         log(f"[{country_code}] Computing flood evacuability for RP{rp}...")
-        flood_arr, _, flood_nodata, bounds, transform, crs = load_local_raster(flood_path)
+        flood_arr, _, flood_nodata, bounds, transform, crs = load_local_raster(
+            flood_path
+        )
         if flood_nodata is not None:
             flood_arr[flood_arr == flood_nodata] = np.nan
 
         friction_arr = fetch_friction_window(
             bounds=(bounds.left, bounds.bottom, bounds.right, bounds.top),
-            target_crs=crs, target_transform=transform, target_shape=flood_arr.shape,
+            target_crs=crs,
+            target_transform=transform,
+            target_shape=flood_arr.shape,
         )
 
         pixel_size_m = get_pixel_size_meters(transform, crs)
@@ -425,17 +489,23 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
 
         if total_pixels > MAX_PIXELS_FOR_MCP:
             scale_by_pixels = np.sqrt(total_pixels / MAX_PIXELS_FOR_MCP)
-            scale_by_resolution = TARGET_RESOLUTION_M / pixel_size_m if pixel_size_m < TARGET_RESOLUTION_M else 1
+            scale_by_resolution = (
+                TARGET_RESOLUTION_M / pixel_size_m
+                if pixel_size_m < TARGET_RESOLUTION_M
+                else 1
+            )
             scale_factor = max(scale_by_pixels, scale_by_resolution)
-            hazard_ds = downsample_array(flood_arr, scale_factor, method='mean')
-            friction_ds = downsample_array(friction_arr, scale_factor, method='mean')
+            hazard_ds = downsample_array(flood_arr, scale_factor, method="mean")
+            friction_ds = downsample_array(friction_arr, scale_factor, method="mean")
             pixel_size_ds = pixel_size_m * scale_factor
         else:
             hazard_ds = flood_arr
             friction_ds = friction_arr
             pixel_size_ds = pixel_size_m
 
-        cost_arr, safe_mask, at_risk_ds = create_cost_surface(friction_ds, hazard_ds, threshold)
+        cost_arr, safe_mask, at_risk_ds = create_cost_surface(
+            friction_ds, hazard_ds, threshold
+        )
 
         if at_risk_ds.sum() == 0:
             log(f"[{country_code}] No at-risk areas for RP{rp}, setting nulls")
@@ -444,11 +514,15 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
             df[f"RP{rp}_evac_time_minutes_median"] = None
             df[f"RP{rp}_pixels_at_risk"] = 0
         else:
-            travel_time_ds = calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_ds)
+            travel_time_ds = calculate_travel_time_mcp(
+                cost_arr, safe_mask, pixel_size_ds
+            )
 
             if scale_factor > 1:
                 travel_time = upsample_array(travel_time_ds, original_shape)
-                _, _, at_risk_mask = create_cost_surface(friction_arr, flood_arr, threshold)
+                _, _, at_risk_mask = create_cost_surface(
+                    friction_arr, flood_arr, threshold
+                )
             else:
                 travel_time = travel_time_ds
                 at_risk_mask = at_risk_ds
@@ -459,16 +533,38 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 tt_path = os.path.join(tmpdir, "travel_time.tif")
-                with rasterio.open(tt_path, 'w', driver='GTiff',
-                    height=travel_time_at_risk.shape[0], width=travel_time_at_risk.shape[1],
-                    count=1, dtype=np.float32, crs=crs, transform=transform, nodata=np.nan) as dst:
+                with rasterio.open(
+                    tt_path,
+                    "w",
+                    driver="GTiff",
+                    height=travel_time_at_risk.shape[0],
+                    width=travel_time_at_risk.shape[1],
+                    count=1,
+                    dtype=np.float32,
+                    crs=crs,
+                    transform=transform,
+                    nodata=np.nan,
+                ) as dst:
                     dst.write(travel_time_at_risk, 1)
-                tt_stats = zonal_stats(gdf_tt, tt_path, stats=['mean', 'max', 'median', 'count'], nodata=np.nan)
+                tt_stats = zonal_stats(
+                    gdf_tt,
+                    tt_path,
+                    stats=["mean", "max", "median", "count"],
+                    nodata=np.nan,
+                )
 
-            df[f"RP{rp}_evac_time_minutes_mean"] = [round(s['mean'], 1) if s.get('mean') else None for s in tt_stats]
-            df[f"RP{rp}_evac_time_minutes_max"] = [round(s['max'], 1) if s.get('max') else None for s in tt_stats]
-            df[f"RP{rp}_evac_time_minutes_median"] = [round(s['median'], 1) if s.get('median') else None for s in tt_stats]
-            df[f"RP{rp}_pixels_at_risk"] = [s['count'] if s.get('count') else 0 for s in tt_stats]
+            df[f"RP{rp}_evac_time_minutes_mean"] = [
+                round(s["mean"], 1) if s.get("mean") else None for s in tt_stats
+            ]
+            df[f"RP{rp}_evac_time_minutes_max"] = [
+                round(s["max"], 1) if s.get("max") else None for s in tt_stats
+            ]
+            df[f"RP{rp}_evac_time_minutes_median"] = [
+                round(s["median"], 1) if s.get("median") else None for s in tt_stats
+            ]
+            df[f"RP{rp}_pixels_at_risk"] = [
+                s["count"] if s.get("count") else 0 for s in tt_stats
+            ]
 
         had_data = True
         log(f"[{country_code}] Flood RP{rp} evacuability done")
@@ -490,8 +586,15 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
             cyclone_raster[cyclone_raster == cyclone_nodata] = np.nan
 
         friction_arr = fetch_friction_window(
-            bounds=(cyclone_bounds.left, cyclone_bounds.bottom, cyclone_bounds.right, cyclone_bounds.top),
-            target_crs=raster_crs, target_transform=cyclone_transform, target_shape=cyclone_shape,
+            bounds=(
+                cyclone_bounds.left,
+                cyclone_bounds.bottom,
+                cyclone_bounds.right,
+                cyclone_bounds.top,
+            ),
+            target_crs=raster_crs,
+            target_transform=cyclone_transform,
+            target_shape=cyclone_shape,
         )
 
         pixel_size_m = get_pixel_size_meters(cyclone_transform, raster_crs)
@@ -501,17 +604,23 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
 
         if total_pixels > MAX_PIXELS_FOR_MCP:
             scale_by_pixels = np.sqrt(total_pixels / MAX_PIXELS_FOR_MCP)
-            scale_by_resolution = TARGET_RESOLUTION_M / pixel_size_m if pixel_size_m < TARGET_RESOLUTION_M else 1
+            scale_by_resolution = (
+                TARGET_RESOLUTION_M / pixel_size_m
+                if pixel_size_m < TARGET_RESOLUTION_M
+                else 1
+            )
             scale_factor = max(scale_by_pixels, scale_by_resolution)
-            cyclone_ds = downsample_array(cyclone_raster, scale_factor, method='max')
-            friction_ds = downsample_array(friction_arr, scale_factor, method='mean')
+            cyclone_ds = downsample_array(cyclone_raster, scale_factor, method="max")
+            friction_ds = downsample_array(friction_arr, scale_factor, method="mean")
             pixel_size_ds = pixel_size_m * scale_factor
         else:
             cyclone_ds = cyclone_raster
             friction_ds = friction_arr
             pixel_size_ds = pixel_size_m
 
-        cost_arr, safe_mask, at_risk_ds = create_cyclone_cost_surface(friction_ds, cyclone_ds)
+        cost_arr, safe_mask, at_risk_ds = create_cyclone_cost_surface(
+            friction_ds, cyclone_ds
+        )
 
         if at_risk_ds.sum() == 0:
             log(f"[{country_code}] No at-risk areas for cyclone, setting nulls")
@@ -520,11 +629,15 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
             df["kt34_evac_time_minutes_median"] = None
             df["kt34_pixels_at_risk"] = 0
         else:
-            travel_time_ds = calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_ds)
+            travel_time_ds = calculate_travel_time_mcp(
+                cost_arr, safe_mask, pixel_size_ds
+            )
 
             if scale_factor > 1:
                 travel_time = upsample_array(travel_time_ds, original_shape)
-                _, _, at_risk_mask = create_cyclone_cost_surface(friction_arr, cyclone_raster)
+                _, _, at_risk_mask = create_cyclone_cost_surface(
+                    friction_arr, cyclone_raster
+                )
             else:
                 travel_time = travel_time_ds
                 at_risk_mask = at_risk_ds
@@ -535,26 +648,52 @@ def compute_evacuability_csv(context, country_code: str, admin_level: str,
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 tt_path = os.path.join(tmpdir, "travel_time.tif")
-                with rasterio.open(tt_path, 'w', driver='GTiff',
-                    height=travel_time_at_risk.shape[0], width=travel_time_at_risk.shape[1],
-                    count=1, dtype=np.float32, crs=raster_crs, transform=cyclone_transform, nodata=np.nan) as dst:
+                with rasterio.open(
+                    tt_path,
+                    "w",
+                    driver="GTiff",
+                    height=travel_time_at_risk.shape[0],
+                    width=travel_time_at_risk.shape[1],
+                    count=1,
+                    dtype=np.float32,
+                    crs=raster_crs,
+                    transform=cyclone_transform,
+                    nodata=np.nan,
+                ) as dst:
                     dst.write(travel_time_at_risk, 1)
-                tt_stats = zonal_stats(gdf_tt, tt_path, stats=['mean', 'max', 'median', 'count'], nodata=np.nan)
+                tt_stats = zonal_stats(
+                    gdf_tt,
+                    tt_path,
+                    stats=["mean", "max", "median", "count"],
+                    nodata=np.nan,
+                )
 
-            df["kt34_evac_time_minutes_mean"] = [round(s['mean'], 1) if s.get('mean') else None for s in tt_stats]
-            df["kt34_evac_time_minutes_max"] = [round(s['max'], 1) if s.get('max') else None for s in tt_stats]
-            df["kt34_evac_time_minutes_median"] = [round(s['median'], 1) if s.get('median') else None for s in tt_stats]
-            df["kt34_pixels_at_risk"] = [s['count'] if s.get('count') else 0 for s in tt_stats]
+            df["kt34_evac_time_minutes_mean"] = [
+                round(s["mean"], 1) if s.get("mean") else None for s in tt_stats
+            ]
+            df["kt34_evac_time_minutes_max"] = [
+                round(s["max"], 1) if s.get("max") else None for s in tt_stats
+            ]
+            df["kt34_evac_time_minutes_median"] = [
+                round(s["median"], 1) if s.get("median") else None for s in tt_stats
+            ]
+            df["kt34_pixels_at_risk"] = [
+                s["count"] if s.get("count") else 0 for s in tt_stats
+            ]
 
         # Validate cyclone evacuability columns
-        evac_cols = ['kt34_evac_time_minutes_mean', 'kt34_evac_time_minutes_max',
-                     'kt34_evac_time_minutes_median', 'kt34_pixels_at_risk']
+        evac_cols = [
+            "kt34_evac_time_minutes_mean",
+            "kt34_evac_time_minutes_max",
+            "kt34_evac_time_minutes_median",
+            "kt34_pixels_at_risk",
+        ]
         for col in evac_cols:
             if col not in df.columns:
                 raise ValueError(f"Missing required cyclone evacuability column: {col}")
-            if df[col].isna().all() and col != 'kt34_pixels_at_risk':
+            if df[col].isna().all() and col != "kt34_pixels_at_risk":
                 raise ValueError(f"Cyclone evacuability column {col} has no valid data")
-        if df['kt34_pixels_at_risk'].sum() == 0:
+        if df["kt34_pixels_at_risk"].sum() == 0:
             raise ValueError("Cyclone evacuability: no pixels at risk found")
 
         had_data = True
@@ -575,14 +714,22 @@ def main():
         description="Calculate evacuatability indicator: travel time from flooded to safe zones"
     )
     parser.add_argument("country_code", help="ISO3 country code (e.g., STP, PAK, BGD)")
-    parser.add_argument("--admin-level", default="ADM2", help="Administrative level (default: ADM2)")
+    parser.add_argument(
+        "--admin-level", default="ADM2", help="Administrative level (default: ADM2)"
+    )
     parser.add_argument("--rp", default="100", help="Return period (default: 100)")
-    parser.add_argument("--flood-threshold", type=float, default=None,
-                        help=f"Flood depth threshold in meters (default: {FLOOD_THRESHOLD})")
+    parser.add_argument(
+        "--flood-threshold",
+        type=float,
+        default=None,
+        help=f"Flood depth threshold in meters (default: {FLOOD_THRESHOLD})",
+    )
     args = parser.parse_args()
     output_path = process_evacuatability(
-        country_code=args.country_code, admin_level=args.admin_level,
-        rp=args.rp, flood_threshold=args.flood_threshold
+        country_code=args.country_code,
+        admin_level=args.admin_level,
+        rp=args.rp,
+        flood_threshold=args.flood_threshold,
     )
     print(f"\nOutput saved to: {output_path}")
 

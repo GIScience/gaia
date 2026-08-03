@@ -17,9 +17,9 @@ from rasterio.features import rasterize
 from rasterstats import zonal_stats
 import pandas as pd
 from shapely.geometry import mapping
-import yaml
-from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
-from scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
+from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
+from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
+
 
 # -----------------------------
 # Simple context with info/warning
@@ -31,12 +31,6 @@ class Context:
     def warning(self, msg):
         print(f"WARNING: {msg}")
 
-# -----------------------------
-# Load asset config
-# -----------------------------
-ASSET_CONFIG_YAML_PATH = os.path.join(os.getcwd(), "configs", "assets_config.yaml")
-with open(ASSET_CONFIG_YAML_PATH) as _fp:
-    _asset_config = yaml.safe_load(_fp)
 
 # -----------------------------
 # IBTrACS Constants
@@ -46,14 +40,28 @@ IBTRACS_URL = (
     "v04r01/access/shapefile/IBTrACS.since1980.list.v04r01.lines.zip"
 )
 DOWNLOAD_DIR = "downloads"
-IBTRACS_LOCAL_ZIP = os.path.join(DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.lines.zip")
+IBTRACS_LOCAL_ZIP = os.path.join(
+    DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.lines.zip"
+)
 
 # -----------------------------
 # Config
 # -----------------------------
 FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
-POP_INDICATORS = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
+POP_INDICATORS = [
+    "total_pop",
+    "female_pop",
+    "children_u5",
+    "female_u5",
+    "elderly",
+    "pop_u15",
+    "female_u15",
+    "wra_pop",
+    "dep_dependents",
+    "dep_working",
+]
 EXPOSURE_CLASSES = [1, 2, 3]  # cyclone categories
+
 
 # -----------------------------
 # Step 1: IBTrACS download & extract
@@ -75,6 +83,7 @@ def ensure_ibtracs_data(context: Context):
             context.info(f"Extracted IBTrACS shapefiles to: {extract_path}")
     return os.path.join(extract_path, "IBTrACS.since1980.list.v04r01.lines.shp")
 
+
 # -----------------------------
 # Step 2: Build cyclone buffers
 # -----------------------------
@@ -89,7 +98,7 @@ def build_cyclone_buffers(context: Context, country_code: str, admin_level: str)
     country_gdf = gpd.read_file(boundary_path)
 
     bbox = country_gdf.total_bounds
-    gdf_ibtracs = gdf_ibtracs.cx[bbox[0]:bbox[2], bbox[1]:bbox[3]]
+    gdf_ibtracs = gdf_ibtracs.cx[bbox[0] : bbox[2], bbox[1] : bbox[3]]
     if gdf_ibtracs.empty:
         context.info(f"No cyclone tracks near {country_code} bounding box.")
         return None
@@ -102,19 +111,24 @@ def build_cyclone_buffers(context: Context, country_code: str, admin_level: str)
     ].mean(axis=1, skipna=True)
     gdf_ibtracs["mean_r34_m"] = gdf_ibtracs["mean_r34"] * 1852
     gdf_ibtracs["geometry"] = gdf_ibtracs.buffer(gdf_ibtracs["mean_r34_m"].fillna(0))
-    
+
     # Fix potential invalid geometries
-    gdf_ibtracs = gdf_ibtracs[~gdf_ibtracs.geometry.is_empty & gdf_ibtracs.geometry.notnull()]
-    gdf_ibtracs['geometry'] = gdf_ibtracs.geometry.buffer(0)
-    country_gdf['geometry'] = country_gdf.geometry.buffer(0)
+    gdf_ibtracs = gdf_ibtracs[
+        ~gdf_ibtracs.geometry.is_empty & gdf_ibtracs.geometry.notnull()
+    ]
+    gdf_ibtracs["geometry"] = gdf_ibtracs.geometry.buffer(0)
+    country_gdf["geometry"] = country_gdf.geometry.buffer(0)
 
     gdf_ibtracs = gpd.clip(gdf_ibtracs, country_gdf)
 
-    out_geojson = f"data/{country_code}/Temporary/{country_code}_cyclone_buffers.geojson"
+    out_geojson = (
+        f"data/{country_code}/Temporary/{country_code}_cyclone_buffers.geojson"
+    )
     os.makedirs(os.path.dirname(out_geojson), exist_ok=True)
     gdf_ibtracs.to_file(out_geojson, driver="GeoJSON")
     context.info(f"Saved cyclone buffer polygons to: {out_geojson}")
     return out_geojson
+
 
 # -----------------------------
 # Step 3: Rasterize buffers
@@ -147,7 +161,13 @@ def rasterize_cyclone_buffers(context: Context, buffer_geojson: str, country_cod
         if not (1 <= level <= 5):
             continue
         shapes = [(row.geometry, level)]
-        mask_arr = rasterize(shapes, out_shape=(height, width), transform=transform, fill=0, dtype=np.uint8)
+        mask_arr = rasterize(
+            shapes,
+            out_shape=(height, width),
+            transform=transform,
+            fill=0,
+            dtype=np.uint8,
+        )
         max_raster = np.maximum(max_raster, mask_arr)
 
     classified = np.zeros_like(max_raster, dtype=np.uint8)
@@ -163,10 +183,13 @@ def rasterize_cyclone_buffers(context: Context, buffer_geojson: str, country_cod
     context.info(f"Classified cyclone raster saved to: {out_path}")
     return str(out_path)
 
+
 # -----------------------------
 # Step 4: Calculate exposure
 # -----------------------------
-def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
+def calculate_cyclone_exposure(
+    context, country_code: str, admin_level="ADM2", api_choice="ohsome-api"
+):
     country_code = country_code.upper()
     admin_level = admin_level.upper()
     temp_dir = Path(f"data/{country_code}/Temporary")
@@ -190,7 +213,7 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
     tif_map = {k: full_tif_map[k] for k in POP_INDICATORS}
 
     context.info(f"Ensuring facility raw geometries exist in {temp_dir}...")
-    api_choice = _asset_config.get("facilities_asset", {}).get("api", "").lower()
+    api_choice = api_choice.lower()
     if api_choice == "ohsome-api":
         fetch_ohsome(context, boundary_file, base_path, country_code, admin_level)
     elif api_choice == "overpass":
@@ -199,7 +222,9 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
         context.info("Not implemented yet: ohsome-parquet")
         return None
     else:
-        context.warning(f"No valid API configured for facilities_asset (got '{api_choice}')")
+        context.warning(
+            f"No valid API configured for facilities_asset (got '{api_choice}')"
+        )
         return None
 
     with rasterio.open(raster_path) as src:
@@ -237,8 +262,13 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
     for cls in EXPOSURE_CLASSES:
         dep_col_num = df[f"kt34_dep_dependents_cat{cls}"]
         dep_col_den = df[f"kt34_dep_working_cat{cls}"].replace(0, pd.NA)
-        df[f"kt34_dependency_ratio_cat{cls}"] = ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
-        df.drop(columns=[f"kt34_dep_dependents_cat{cls}", f"kt34_dep_working_cat{cls}"], inplace=True)
+        df[f"kt34_dependency_ratio_cat{cls}"] = (
+            ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
+        )
+        df.drop(
+            columns=[f"kt34_dep_dependents_cat{cls}", f"kt34_dep_working_cat{cls}"],
+            inplace=True,
+        )
 
     # --- Facility exposure ---
     for category in FACILITY_CATEGORIES:
@@ -272,14 +302,27 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
                 .reset_index(name=f"kt34_{category}_count_cat{cls}")
             )
             df = df.merge(grouped, on=f"{admin_level}_PCODE", how="left")
-            df[f"kt34_{category}_count_cat{cls}"] = df[f"kt34_{category}_count_cat{cls}"].fillna(0).astype(int)
+            df[f"kt34_{category}_count_cat{cls}"] = (
+                df[f"kt34_{category}_count_cat{cls}"].fillna(0).astype(int)
+            )
             # percent
             df[f"kt34_{category}_perc_cat{cls}"] = df.apply(
-                lambda x: round((x[f"kt34_{category}_count_cat{cls}"] / total_facilities.get(x[f"{admin_level}_PCODE"], 1)) * 100, 0),
+                lambda x: round(
+                    (
+                        x[f"kt34_{category}_count_cat{cls}"]
+                        / total_facilities.get(x[f"{admin_level}_PCODE"], 1)
+                    )
+                    * 100,
+                    0,
+                ),
                 axis=1,
             )
 
-    numeric_cols = [c for c in df.select_dtypes(include=["float", "int"]).columns if "dependency_ratio" not in c]
+    numeric_cols = [
+        c
+        for c in df.select_dtypes(include=["float", "int"]).columns
+        if "dependency_ratio" not in c
+    ]
     df[numeric_cols] = df[numeric_cols].fillna(0).round(0).astype(int)
 
     output_dir = base_path / "Output"
@@ -289,14 +332,23 @@ def calculate_cyclone_exposure(context, country_code: str, admin_level="ADM2"):
     context.info(f"Cyclone exposure CSV saved to: {out_csv}")
     return str(out_csv)
 
+
 # -----------------------------
 # Main
 # -----------------------------
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Process cyclone exposure and vulnerable populations/facilities.")
+
+    parser = argparse.ArgumentParser(
+        description="Process cyclone exposure and vulnerable populations/facilities."
+    )
     parser.add_argument("country_code", help="ISO3 country code, e.g., PHL")
-    parser.add_argument("admin_level", nargs="?", default="ADM2", help="Administrative level, default ADM2")
+    parser.add_argument(
+        "admin_level",
+        nargs="?",
+        default="ADM2",
+        help="Administrative level, default ADM2",
+    )
     args = parser.parse_args()
 
     calculate_cyclone_exposure(args.country_code, args.admin_level)

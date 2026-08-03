@@ -112,3 +112,20 @@ build/
 
 # but keep the dagster.yaml file
 !.dagster/dagster.yaml
+.Rproj.user
+
+# Local / scratch (not part of the pipeline)
+.Rhistory
+.Rhistory*
+RAI_data/
+.ruff_cache/
+.tmp_dagster_home_*/
+test_import.py
+test_plan.py
+test_stats.py
+test_tif.py
+sources.json
+sources.txt
+en_gaia_indicators_processing.md
+gaia.Rproj
+rural_acces_index.R

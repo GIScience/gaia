@@ -1,0 +1,70 @@
+[project]
+name = "gaia"
+version = "0.0.1"
+description = "GAIA risk assessment indicators pipeline"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "dagster==1.12.4",
+    "dagster-dg-cli",
+    "dagster-webserver",
+    "pandas>=2.2.3",
+    "requests>=2.32.4",
+    "geopandas>=1.0.0",
+    "rasterio>=1.4.3",
+    "rioxarray>=0.15.0",
+    "xarray>=2023.1.0",
+    "numpy>=1.25.0",
+    "shapely>=2.0.0",
+    "fiona>=1.9.0",
+    "pyproj>=3.6.0",
+    "minio>=7.2.15",
+    "ohsome>=0.4.0",
+    "earthengine-api>=1.6.4",
+    "geemap>=0.36.2",
+    "rasterstats>=0.20.0",
+    "hdx-python-api>=6.4.6",
+    "overpass>=0.7",
+    "pyarrow",
+    "scikit-image>=0.21.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "pytest",
+]
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pytest",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gaia"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.dg]
+directory_type = "project"
+
+[tool.dg.project]
+root_module = "gaia"
+registry_modules = [
+    "gaia.defs.*",
+]
+
+[tool.ruff.lint]
+ignore = [
+    "ERA001",
+    "E501",
+    "F401",
+]
+
+fixable = ["ALL"]
+unfixable = [
+    "F401",
+]

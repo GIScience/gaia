@@ -1,0 +1,438 @@
+AFG:
+  region: asia
+  hdx_country: afghanistan
+AGO:
+  region: africa
+  hdx_country: angola
+ALB:
+  region: europe
+  hdx_country: albania
+ARE:
+  region: asia
+  hdx_country: United-arab-emirates
+ARG:
+  region: south-america
+  hdx_country: argentina
+ARM:
+  region: asia
+  hdx_country: armenia
+ATG:
+  region: central-america
+  hdx_country: antigua-and-barbuda
+AZE:
+  region: asia
+  hdx_country: azerbaijan
+BDI:
+  region: africa
+  hdx_country: burundi
+BEN:
+  region: africa
+  hdx_country: benin
+BFA:
+  region: africa
+  hdx_country: burkina-faso
+BGD:
+  region: asia
+  hdx_country: bangladesh
+BGR:
+  region: europe
+  hdx_country: bulgaria
+BHR:
+  region: asia
+  hdx_country: bahrain
+BHS:
+  region: central-america
+  hdx_country: bahamas
+BLR:
+  region: europe
+  hdx_country: belarus
+BLZ:
+  region: central-america
+  hdx_country: belize
+BOL:
+  region: south-america
+  hdx_country: bolivia
+BRA:
+  region: south-america
+  hdx_country: brazil
+BRB:
+  region: central-america
+  hdx_country: central-america
+BTN:
+  region: asia
+  hdx_country: bhutan
+BWA:
+  region: africa
+  hdx_country: botswana
+CAF:
+  region: africa
+  hdx_country: central-african-republic
+CHL:
+  region: south-america
+  hdx_country: chile
+CHN:
+  region: asia
+  hdx_country: china
+CIV:
+  region: africa
+  hdx_country: ivory-coast
+CMR:
+  region: africa
+  hdx_country: cameroon
+COD:
+  region: africa
+  hdx_country: congo-democratic-republic
+COG:
+  region: africa
+  hdx_country: congo-brazzaville
+COL:
+  region: south-america
+  hdx_country: colombia
+COM:
+  region: africa
+  hdx_country: comores
+CPV:
+  region: africa
+  hdx_country: cape-verde
+CRI:
+  region: central-america
+  hdx_country: costa-rica
+CUB:
+  region: central-america
+  hdx_country: cuba
+DJI:
+  region: africa
+  hdx_country: djibouti
+DMA:
+  region: central-america
+  hdx_country: .nan
+DOM:
+  region: central-america
+  hdx_country: haiti-and-domrep
+DZA:
+  region: africa
+  hdx_country: algeria
+ECU:
+  region: south-america
+  hdx_country: ecuador
+EGY:
+  region: africa
+  hdx_country: egypt
+ERI:
+  region: africa
+  hdx_country: eritrea
+ESH:
+  region: africa
+  hdx_country: morocco
+ETH:
+  region: africa
+  hdx_country: ethiopia
+FJI:
+  region: australia-oceania
+  hdx_country: fiji
+FSM:
+  region: australia-oceania
+  hdx_country: micronesia
+GAB:
+  region: africa
+  hdx_country: gabon
+GEO:
+  region: europe
+  hdx_country: georgia
+GHA:
+  region: africa
+  hdx_country: ghana
+GIN:
+  region: africa
+  hdx_country: guinea
+GMB:
+  region: africa
+  hdx_country: senegal-and-gambia
+GNB:
+  region: africa
+  hdx_country: guinea-bissau
+GNQ:
+  region: africa
+  hdx_country: equatorial-guinea
+GRC:
+  region: europe
+  hdx_country: greece
+GRD:
+  region: north-america
+  hdx_country: greenland
+GTM:
+  region: central-america
+  hdx_country: guatemala
+GUY:
+  region: south-america
+  hdx_country: guyana
+HND:
+  region: central-america
+  hdx_country: honduras
+HTI:
+  region: central-america
+  hdx_country: haiti-and-domrep
+HUN:
+  region: europe
+  hdx_country: hungary
+IDN:
+  region: asia
+  hdx_country: indonesia
+IRN:
+  region: asia
+  hdx_country: iran
+IRQ:
+  region: asia
+  hdx_country: iraq
+JAM:
+  region: central-america
+  hdx_country: jamaica
+KAZ:
+  region: asia
+  hdx_country: kazakhstan
+KEN:
+  region: africa
+  hdx_country: kenya
+KGZ:
+  region: asia
+  hdx_country: kyrgyzstan
+KHM:
+  region: asia
+  hdx_country: cambodia
+KIR:
+  region: australia-oceania
+  hdx_country: kiribati
+KNA:
+  region: central-america
+  hdx_country: saint-kitts-and-nevis
+KWT:
+  region: asia
+  hdx_country: kuwait
+LAO:
+  region: asia
+  hdx_country: laos
+LBN:
+  region: asia
+  hdx_country: lebanon
+LBR:
+  region: africa
+  hdx_country: liberia
+LBY:
+  region: africa
+  hdx_country: libya
+LCA:
+  region: central-america
+  hdx_country: saint-lucia
+LKA:
+  region: asia
+  hdx_country: sri-lanka
+LSO:
+  region: africa
+  hdx_country: lesotho
+MAR:
+  region: africa
+  hdx_country: morocco
+MDA:
+  region: europe
+  hdx_country: moldova
+MDG:
+  region: africa
+  hdx_country: madagascar
+MDV:
+  region: asia
+  hdx_country: maldives
+MEX:
+  region: north-america
+  hdx_country: mexico
+MHL:
+  region: australia-oceania
+  hdx_country: marshall-islands
+MKD:
+  region: europe
+  hdx_country: macedonia
+MLI:
+  region: africa
+  hdx_country: mali
+MMR:
+  region: asia
+  hdx_country: myanmar
+MNG:
+  region: asia
+  hdx_country: mongolia
+MOZ:
+  region: africa
+  hdx_country: mozambique
+MRT:
+  region: africa
+  hdx_country: mauritania
+MUS:
+  region: africa
+  hdx_country: mauritius
+MWI:
+  region: africa
+  hdx_country: malawi
+MYS:
+  region: asia
+  hdx_country: malaysia
+NAM:
+  region: africa
+  hdx_country: namibia
+NER:
+  region: africa
+  hdx_country: niger
+NGA:
+  region: africa
+  hdx_country: nigeria
+NIC:
+  region: central-america
+  hdx_country: nicaragua
+NPL:
+  region: asia
+  hdx_country: nepal
+OMN:
+  region: asia
+  hdx_country: oman
+PAK:
+  region: asia
+  hdx_country: pakistan
+PAN:
+  region: central-america
+  hdx_country: panama
+PER:
+  region: south-america
+  hdx_country: peru
+PHL:
+  region: asia
+  hdx_country: philippines
+PNG:
+  region: asia
+  hdx_country: papua-new-guinea
+POL:
+  region: europe
+  hdx_country: poland
+PRK:
+  region: asia
+  hdx_country: north-korea
+PRY:
+  region: south-america
+  hdx_country: paraguay
+QAT:
+  region: asia
+  hdx_country: qatar
+ROU:
+  region: europe
+  hdx_country: romania
+RUS:
+  region: russia
+  hdx_country: russia
+RWA:
+  region: africa
+  hdx_country: rwanda
+SAU:
+  region: asia
+  hdx_country: saudi-arabia
+SDN:
+  region: africa
+  hdx_country: sudan
+SEN:
+  region: africa
+  hdx_country: senegal-and-gambia
+SLB:
+  region: australia-oceania
+  hdx_country: solomon-islands
+SLE:
+  region: africa
+  hdx_country: sierra-leone
+SLV:
+  region: central-america
+  hdx_country: el-salvador
+SOM:
+  region: africa
+  hdx_country: somalia
+SSD:
+  region: africa
+  hdx_country: south-sudan
+STP:
+  region: africa
+  hdx_country: sao-tome-and-principe
+SUR:
+  region: south-america
+  hdx_country: suriname
+SVK:
+  region: europe
+  hdx_country: slovakia
+SWZ:
+  region: africa
+  hdx_country: eswatini
+SYC:
+  region: africa
+  hdx_country: seychelles
+SYR:
+  region: asia
+  hdx_country: syria
+TCD:
+  region: africa
+  hdx_country: chad
+TGO:
+  region: africa
+  hdx_country: togo
+THA:
+  region: asia
+  hdx_country: thailand
+TJK:
+  region: asia
+  hdx_country: tajikistan
+TLS:
+  region: asia
+  hdx_country: timor-leste
+TON:
+  region: australia-oceania
+  hdx_country: tonga
+TTO:
+  region: central-america
+  hdx_country: trinidad-and-tobago
+TUN:
+  region: africa
+  hdx_country: tunisia
+TUR:
+  region: europe
+  hdx_country: turkey
+TZA:
+  region: africa
+  hdx_country: tanzania
+UGA:
+  region: africa
+  hdx_country: uganda
+UKR:
+  region: europe
+  hdx_country: ukraine
+URY:
+  region: south-america
+  hdx_country: uruguay
+UZB:
+  region: asia
+  hdx_country: uzbekistan
+VCT:
+  region: central-america
+  hdx_country: saint-vincent-and-the-grenadines
+VEN:
+  region: south-america
+  hdx_country: venezuela
+VNM:
+  region: asia
+  hdx_country: vietnam
+VUT:
+  region: australia-oceania
+  hdx_country: vanuatu
+YEM:
+  region: asia
+  hdx_country: yemen
+ZAF:
+  region: africa
+  hdx_country: south-africa
+ZMB:
+  region: africa
+  hdx_country: zambia
+ZWE:
+  region: africa
+  hdx_country: zimbabwe

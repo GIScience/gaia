@@ -10,28 +10,34 @@ import argparse
 import logging
 from rasterstats import zonal_stats
 
-from scripts.fetch_worldpop import fetch_worldpop
+from gaia.scripts.fetch_worldpop import fetch_worldpop
 
 
 CATEGORY_SPECS = {
     "education": {
-        "ranges": {5000: "access_pop_education_5km",
-                   10000: "access_pop_education_10km",
-                   20000: "access_pop_education_20km"},
+        "ranges": {
+            5000: "access_pop_education_5km",
+            10000: "access_pop_education_10km",
+            20000: "access_pop_education_20km",
+        },
         "type": "distance",  # meters
     },
     "hospitals": {
-        "ranges": {1800: "access_pop_hospitals_30min",
-                   3600: "access_pop_hospitals_1h",
-                   7200: "access_pop_hospitals_2h"},
+        "ranges": {
+            1800: "access_pop_hospitals_30min",
+            3600: "access_pop_hospitals_1h",
+            7200: "access_pop_hospitals_2h",
+        },
         "type": "time",  # seconds
     },
     "primary_healthcare": {
-        "ranges": {1800: "access_pop_primary_healthcare_30min",
-                   3600: "access_pop_primary_healthcare_1h",
-                   7200: "access_pop_primary_healthcare_2h"},
+        "ranges": {
+            1800: "access_pop_primary_healthcare_30min",
+            3600: "access_pop_primary_healthcare_1h",
+            7200: "access_pop_primary_healthcare_2h",
+        },
         "type": "time",  # seconds
-    }
+    },
 }
 
 
@@ -66,7 +72,9 @@ def find_value_field(df, context):
     raise ValueError("Could not identify value/range column in isochrones")
 
 
-def compute_access_population(country_code, admin_level, gdf_admin, work_dir, output_dir, context):
+def compute_access_population(
+    country_code, admin_level, gdf_admin, work_dir, output_dir, context
+):
     """
     Compute how much vulnerable population lives within accessibility isochrones,
     grouped by chosen administrative level.
@@ -92,11 +100,13 @@ def compute_access_population(country_code, admin_level, gdf_admin, work_dir, ou
 
     # Initialize results table with admin PCODE
     admin_col = f"{admin_level}_PCODE"
-    results = pd.DataFrame({
-        admin_col: gdf_admin[admin_col],
-        "ADM_PCODE": gdf_admin[admin_col],  # duplicate for consistency
-    })
-    
+    results = pd.DataFrame(
+        {
+            admin_col: gdf_admin[admin_col],
+            "ADM_PCODE": gdf_admin[admin_col],  # duplicate for consistency
+        }
+    )
+
     for category, spec in CATEGORY_SPECS.items():
         gpkg_path = download_access_gpkg(country_code, category, work_dir, context)
 
@@ -112,20 +122,28 @@ def compute_access_population(country_code, admin_level, gdf_admin, work_dir, ou
             subset = isochrones[isochrones[value_field] == cutoff]
             if subset.empty:
                 # Skip creating this column if no polygons found
-                context.info(f"  No polygons found for {cutoff} in {category} — skipping.")
-                continue 
+                context.info(
+                    f"  No polygons found for {cutoff} in {category} — skipping."
+                )
+                continue
 
             # Intersect chosen admin level with isochrone
             admin_in_range = gpd.overlay(gdf_admin, subset, how="intersection")
             if admin_in_range.empty:
-                context.info(f"  No intersections found for {cutoff} in {category} — skipping.")
-                continue 
+                context.info(
+                    f"  No intersections found for {cutoff} in {category} — skipping."
+                )
+                continue
 
-            stats = zonal_stats(admin_in_range, vuln_tmp, stats="sum", nodata=0, geojson_out=True)
+            stats = zonal_stats(
+                admin_in_range, vuln_tmp, stats="sum", nodata=0, geojson_out=True
+            )
 
             if not stats:
-                context.info(f"  No zonal stats computed for {cutoff} in {category} — skipping.")
-                continue  
+                context.info(
+                    f"  No zonal stats computed for {cutoff} in {category} — skipping."
+                )
+                continue
 
             sums = {}
             for s in stats:
@@ -133,11 +151,7 @@ def compute_access_population(country_code, admin_level, gdf_admin, work_dir, ou
                 sums[pcode] = sums.get(pcode, 0) + (s["properties"]["sum"] or 0)
 
             results[colname] = (
-                results[f"{admin_level}_PCODE"]
-                .map(sums)
-                .fillna(0)
-                .round(0)
-                .astype(int)
+                results[f"{admin_level}_PCODE"].map(sums).fillna(0).round(0).astype(int)
             )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -179,7 +193,9 @@ if __name__ == "__main__":
     context = Context()
 
     try:
-        admin_geojson = Path(f"data/{country_code}/{country_code}_{admin_level}.geojson")
+        admin_geojson = Path(
+            f"data/{country_code}/{country_code}_{admin_level}.geojson"
+        )
         if not admin_geojson.exists():
             context.info(f"ERROR: Admin file not found: {admin_geojson}")
             exit(1)

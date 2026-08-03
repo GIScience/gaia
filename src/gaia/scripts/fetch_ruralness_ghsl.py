@@ -12,12 +12,17 @@ import logging
 import geopandas as gpd
 
 from rasterstats import zonal_stats
-from scripts.fetch_worldpop import fetch_worldpop, INDICATORS
+from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 
 RECLASS_MAP = {
     10: None,
-    11: 1, 12: 1, 13: 1,   # rural
-    21: 2, 22: 2, 23: 2, 30: 2,  # urban
+    11: 1,
+    12: 1,
+    13: 1,  # rural
+    21: 2,
+    22: 2,
+    23: 2,
+    30: 2,  # urban
 }
 SMOD_ZIP_URL = (
     "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/GHSL/"
@@ -62,7 +67,7 @@ def reclassify_raster(in_tif, out_tif, reclass_map, context):
         out = np.full(arr.shape, nodata_val, dtype=np.uint8)
 
         for old, new in reclass_map.items():
-            mask_val = (arr == old)
+            mask_val = arr == old
             if new is None:
                 out[mask_val] = nodata_val
             else:
@@ -74,7 +79,9 @@ def reclassify_raster(in_tif, out_tif, reclass_map, context):
     context.info(f"Reclassified raster saved to {out_tif}")
 
 
-def compute_rural_population(country_code, admin_level, gdf, work_dir, output_dir, context):
+def compute_rural_population(
+    country_code, admin_level, gdf, work_dir, output_dir, context
+):
     """
     Compute rural population counts by admin unit for each indicator.
     Generates smod_reclass.tif if missing. Skips if output CSV already exists.
@@ -107,16 +114,25 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
         # Ensure WorldPop files exist
         context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
         indicator_tifs = fetch_worldpop(country_code)
-        indicators = ["total_pop", "female_pop", "children_u5", "female_u5", "elderly", "pop_u15", "female_u15", "wra_pop", "dep_dependents", "dep_working"]
+        indicators = [
+            "total_pop",
+            "female_pop",
+            "children_u5",
+            "female_u5",
+            "elderly",
+            "pop_u15",
+            "female_u15",
+            "wra_pop",
+            "dep_dependents",
+            "dep_working",
+        ]
         tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
 
         # --- load SMOD raster ---
         smod = rioxarray.open_rasterio(reclass_tif, masked=True).squeeze()
 
         # Create initial DataFrame with admin codes
-        rural_df = pd.DataFrame({
-            f"{admin_level}_PCODE": gdf[f"{admin_level}_PCODE"]
-        })
+        rural_df = pd.DataFrame({f"{admin_level}_PCODE": gdf[f"{admin_level}_PCODE"]})
 
         # Add ADM_PCODE column duplicating the administrative code
         rural_df["ADM_PCODE"] = gdf[f"{admin_level}_PCODE"]
@@ -129,42 +145,59 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
             pop_raster = rioxarray.open_rasterio(pop_raster_path, masked=True).squeeze()
 
             # Align SMOD raster to population raster
-            smod_aligned = smod.rio.reproject_match(pop_raster, resampling=rasterio.enums.Resampling.nearest)
+            smod_aligned = smod.rio.reproject_match(
+                pop_raster, resampling=rasterio.enums.Resampling.nearest
+            )
             rural_mask = (smod_aligned == 1).astype("float32")
             rural_pop = pop_raster * rural_mask
 
             tmp_rural = work_dir / f"tmp_rural_{label}.tif"
             with rasterio.open(pop_raster_path) as src:
                 meta = src.meta.copy()
-                meta.update(compress="lzw", tiled=True,
-                            bigtiff="yes" if src.width * src.height > 2**32 else "no")
+                meta.update(
+                    compress="lzw",
+                    tiled=True,
+                    bigtiff="yes" if src.width * src.height > 2**32 else "no",
+                )
             with rasterio.open(tmp_rural, "w", **meta) as dst:
                 dst.write(rural_pop.values, 1)
 
             # Rural population sums per admin unit
             stats = zonal_stats(gdf, tmp_rural, stats="sum", nodata=0)
-            rural_df[f"{label}_rural"] = [s["sum"] if s["sum"] is not None else 0 for s in stats]
+            rural_df[f"{label}_rural"] = [
+                s["sum"] if s["sum"] is not None else 0 for s in stats
+            ]
 
             # Total population sums per admin unit
             total_stats = zonal_stats(gdf, pop_raster_path, stats="sum", nodata=0)
-            total_pop_counts[label] = [s["sum"] if s["sum"] is not None else 0 for s in total_stats]
+            total_pop_counts[label] = [
+                s["sum"] if s["sum"] is not None else 0 for s in total_stats
+            ]
 
             context.info(f"Processed rural population for {label}")
 
         # --- calculate dependency ratio mathematically ---
         dep_col_num = rural_df["dep_dependents_rural"]
         dep_col_den = rural_df["dep_working_rural"].replace(0, pd.NA)
-        rural_df["dependency_ratio_rural"] = ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
-        rural_df.drop(columns=["dep_dependents_rural", "dep_working_rural"], inplace=True)
+        rural_df["dependency_ratio_rural"] = (
+            ((dep_col_num / dep_col_den) * 100).fillna(0).round(2)
+        )
+        rural_df.drop(
+            columns=["dep_dependents_rural", "dep_working_rural"], inplace=True
+        )
 
         # --- calculate one overall rural percentage column ---
         total_pop = pd.Series(total_pop_counts["total_pop"]).replace({0: np.nan})
         rural_df["rural_pop_perc"] = (
-            rural_df["total_pop_rural"] / total_pop * 100
-        ).fillna(0).round(2)
+            (rural_df["total_pop_rural"] / total_pop * 100).fillna(0).round(2)
+        )
 
         # --- finalize ---
-        count_cols = [c for c in rural_df.columns if c.endswith("_rural") and "dependency_ratio" not in c]
+        count_cols = [
+            c
+            for c in rural_df.columns
+            if c.endswith("_rural") and "dependency_ratio" not in c
+        ]
         perc_cols = [c for c in rural_df.columns if c.endswith("_rural_perc")]
 
         # Counts → integers
@@ -185,8 +218,8 @@ def compute_rural_population(country_code, admin_level, gdf, work_dir, output_di
         if unzip_dir and unzip_dir.exists():
             shutil.rmtree(unzip_dir)
             context.info(f"Deleted {unzip_dir}")
-        
-                # cleanup tmp_rural rasters
+
+            # cleanup tmp_rural rasters
         for tmp_file in work_dir.glob("tmp_rural_*.tif"):
             try:
                 tmp_file.unlink()
@@ -232,7 +265,9 @@ if __name__ == "__main__":
 
     try:
         # --- locate admin GeoJSON ---
-        admin_geojson = Path(f"data/{country_code}/{country_code}_{admin_level}.geojson")
+        admin_geojson = Path(
+            f"data/{country_code}/{country_code}_{admin_level}.geojson"
+        )
         if not admin_geojson.exists():
             context.info(f"ERROR: Admin file not found: {admin_geojson}")
             exit(1)

@@ -8,13 +8,24 @@ import rioxarray
 import rasterio
 import requests
 from rasterstats import zonal_stats
-from scripts.fetch_ruralness_ghsl import download_and_unzip_smod, reclassify_raster, RECLASS_MAP
-from scripts.fetch_worldpop import fetch_worldpop, INDICATORS as WP_INDICATORS
+from gaia.scripts.fetch_ruralness_ghsl import (
+    download_and_unzip_smod,
+    reclassify_raster,
+    RECLASS_MAP,
+)
+from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS as WP_INDICATORS
 
 RAI_INDICATORS = [
-    "total_pop", "female_pop", "children_u5", "female_u5",
-    "elderly", "pop_u15", "female_u15", "wra_pop",
-    "dep_dependents", "dep_working",
+    "total_pop",
+    "female_pop",
+    "children_u5",
+    "female_u5",
+    "elderly",
+    "pop_u15",
+    "female_u15",
+    "wra_pop",
+    "dep_dependents",
+    "dep_working",
 ]
 
 OUTPUT_NAME_MAP = {
@@ -31,35 +42,151 @@ OUTPUT_NAME_MAP = {
 }
 
 ISO3_TO_ISO2 = {
-    "AFG": "AF", "AGO": "AO", "ALB": "AL", "ARE": "AE", "ARG": "AR",
-    "ARM": "AM", "ATG": "AG", "AZE": "AZ", "BDI": "BI", "BEN": "BJ",
-    "BFA": "BF", "BGD": "BD", "BGR": "BG", "BHR": "BH", "BHS": "BS",
-    "BLR": "BY", "BLZ": "BZ", "BOL": "BO", "BRA": "BR", "BRB": "BB",
-    "BTN": "BT", "BWA": "BW", "CAF": "CF", "CHL": "CL", "CHN": "CN",
-    "CIV": "CI", "CMR": "CM", "COD": "CD", "COG": "CG", "COL": "CO",
-    "COM": "KM", "CPV": "CV", "CRI": "CR", "CUB": "CU", "DJI": "DJ",
-    "DMA": "DM", "DOM": "DO", "DZA": "DZ", "ECU": "EC", "EGY": "EG",
-    "ERI": "ER", "ESH": "EH", "ETH": "ET", "FJI": "FJ", "FSM": "FM",
-    "GAB": "GA", "GEO": "GE", "GHA": "GH", "GIN": "GN", "GMB": "GM",
-    "GNB": "GW", "GNQ": "GQ", "GRC": "GR", "GRD": "GD", "GTM": "GT",
-    "GUY": "GY", "HND": "HN", "HTI": "HT", "HUN": "HU", "IDN": "ID",
-    "IRN": "IR", "IRQ": "IQ", "JAM": "JM", "KAZ": "KZ", "KEN": "KE",
-    "KGZ": "KG", "KHM": "KH", "KIR": "KI", "KNA": "KN", "KWT": "KW",
-    "LAO": "LA", "LBN": "LB", "LBR": "LR", "LBY": "LY", "LCA": "LC",
-    "LKA": "LK", "LSO": "LS", "MAR": "MA", "MDA": "MD", "MDG": "MG",
-    "MDV": "MV", "MEX": "MX", "MHL": "MH", "MKD": "MK", "MLI": "ML",
-    "MMR": "MM", "MNG": "MN", "MOZ": "MZ", "MRT": "MR", "MUS": "MU",
-    "MWI": "MW", "MYS": "MY", "NAM": "NA", "NER": "NE", "NGA": "NG",
-    "NIC": "NI", "NPL": "NP", "OMN": "OM", "PAK": "PK", "PAN": "PA",
-    "PER": "PE", "PHL": "PH", "PNG": "PG", "POL": "PL", "PRK": "KP",
-    "PRY": "PY", "QAT": "QA", "ROU": "RO", "RUS": "RU", "RWA": "RW",
-    "SAU": "SA", "SDN": "SD", "SEN": "SN", "SLB": "SB", "SLE": "SL",
-    "SLV": "SV", "SOM": "SO", "SSD": "SS", "STP": "ST", "SUR": "SR",
-    "SVK": "SK", "SWZ": "SZ", "SYC": "SC", "SYR": "SY", "TCD": "TD",
-    "TGO": "TG", "THA": "TH", "TJK": "TJ", "TLS": "TL", "TON": "TO",
-    "TTO": "TT", "TUN": "TN", "TUR": "TR", "TZA": "TZ", "UGA": "UG",
-    "UKR": "UA", "URY": "UY", "UZB": "UZ", "VCT": "VC", "VEN": "VE",
-    "VNM": "VN", "VUT": "VU", "YEM": "YE", "ZAF": "ZA", "ZMB": "ZM",
+    "AFG": "AF",
+    "AGO": "AO",
+    "ALB": "AL",
+    "ARE": "AE",
+    "ARG": "AR",
+    "ARM": "AM",
+    "ATG": "AG",
+    "AZE": "AZ",
+    "BDI": "BI",
+    "BEN": "BJ",
+    "BFA": "BF",
+    "BGD": "BD",
+    "BGR": "BG",
+    "BHR": "BH",
+    "BHS": "BS",
+    "BLR": "BY",
+    "BLZ": "BZ",
+    "BOL": "BO",
+    "BRA": "BR",
+    "BRB": "BB",
+    "BTN": "BT",
+    "BWA": "BW",
+    "CAF": "CF",
+    "CHL": "CL",
+    "CHN": "CN",
+    "CIV": "CI",
+    "CMR": "CM",
+    "COD": "CD",
+    "COG": "CG",
+    "COL": "CO",
+    "COM": "KM",
+    "CPV": "CV",
+    "CRI": "CR",
+    "CUB": "CU",
+    "DJI": "DJ",
+    "DMA": "DM",
+    "DOM": "DO",
+    "DZA": "DZ",
+    "ECU": "EC",
+    "EGY": "EG",
+    "ERI": "ER",
+    "ESH": "EH",
+    "ETH": "ET",
+    "FJI": "FJ",
+    "FSM": "FM",
+    "GAB": "GA",
+    "GEO": "GE",
+    "GHA": "GH",
+    "GIN": "GN",
+    "GMB": "GM",
+    "GNB": "GW",
+    "GNQ": "GQ",
+    "GRC": "GR",
+    "GRD": "GD",
+    "GTM": "GT",
+    "GUY": "GY",
+    "HND": "HN",
+    "HTI": "HT",
+    "HUN": "HU",
+    "IDN": "ID",
+    "IRN": "IR",
+    "IRQ": "IQ",
+    "JAM": "JM",
+    "KAZ": "KZ",
+    "KEN": "KE",
+    "KGZ": "KG",
+    "KHM": "KH",
+    "KIR": "KI",
+    "KNA": "KN",
+    "KWT": "KW",
+    "LAO": "LA",
+    "LBN": "LB",
+    "LBR": "LR",
+    "LBY": "LY",
+    "LCA": "LC",
+    "LKA": "LK",
+    "LSO": "LS",
+    "MAR": "MA",
+    "MDA": "MD",
+    "MDG": "MG",
+    "MDV": "MV",
+    "MEX": "MX",
+    "MHL": "MH",
+    "MKD": "MK",
+    "MLI": "ML",
+    "MMR": "MM",
+    "MNG": "MN",
+    "MOZ": "MZ",
+    "MRT": "MR",
+    "MUS": "MU",
+    "MWI": "MW",
+    "MYS": "MY",
+    "NAM": "NA",
+    "NER": "NE",
+    "NGA": "NG",
+    "NIC": "NI",
+    "NPL": "NP",
+    "OMN": "OM",
+    "PAK": "PK",
+    "PAN": "PA",
+    "PER": "PE",
+    "PHL": "PH",
+    "PNG": "PG",
+    "POL": "PL",
+    "PRK": "KP",
+    "PRY": "PY",
+    "QAT": "QA",
+    "ROU": "RO",
+    "RUS": "RU",
+    "RWA": "RW",
+    "SAU": "SA",
+    "SDN": "SD",
+    "SEN": "SN",
+    "SLB": "SB",
+    "SLE": "SL",
+    "SLV": "SV",
+    "SOM": "SO",
+    "SSD": "SS",
+    "STP": "ST",
+    "SUR": "SR",
+    "SVK": "SK",
+    "SWZ": "SZ",
+    "SYC": "SC",
+    "SYR": "SY",
+    "TCD": "TD",
+    "TGO": "TG",
+    "THA": "TH",
+    "TJK": "TJ",
+    "TLS": "TL",
+    "TON": "TO",
+    "TTO": "TT",
+    "TUN": "TN",
+    "TUR": "TR",
+    "TZA": "TZ",
+    "UGA": "UG",
+    "UKR": "UA",
+    "URY": "UY",
+    "UZB": "UZ",
+    "VCT": "VC",
+    "VEN": "VE",
+    "VNM": "VN",
+    "VUT": "VU",
+    "YEM": "YE",
+    "ZAF": "ZA",
+    "ZMB": "ZM",
     "ZWE": "ZW",
 }
 
@@ -102,7 +229,9 @@ def download_road_data(country_code, download_dir, context):
             paths["mapillary"] = str(mapillary_path)
             context.info(f"Saved Mapillary roads to {mapillary_path}")
         else:
-            context.warning(f"Mapillary data not available (HTTP {resp.status_code}): {mapillary_url}")
+            context.warning(
+                f"Mapillary data not available (HTTP {resp.status_code}): {mapillary_url}"
+            )
 
     if planet_path.exists():
         context.info(f"Planet data already cached: {planet_path}")
@@ -117,7 +246,9 @@ def download_road_data(country_code, download_dir, context):
             paths["planet"] = str(planet_path)
             context.info(f"Saved Planet roads to {planet_path}")
         else:
-            context.warning(f"Planet data not available (HTTP {resp.status_code}): {planet_url}")
+            context.warning(
+                f"Planet data not available (HTTP {resp.status_code}): {planet_url}"
+            )
 
     return paths
 
@@ -153,8 +284,18 @@ RAI_OUTPUT_COLUMNS = [
 ]
 
 
-def compute_rai(country_code, admin_level, gdf_admin, output_dir, work_dir,
-                mapillary_path, planet_path, demographics_csv, rural_csv, context):
+def compute_rai(
+    country_code,
+    admin_level,
+    gdf_admin,
+    output_dir,
+    work_dir,
+    mapillary_path,
+    planet_path,
+    demographics_csv,
+    rural_csv,
+    context,
+):
     country_code = country_code.upper()
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -207,16 +348,13 @@ def compute_rai(country_code, admin_level, gdf_admin, output_dir, work_dir,
     # ----------------------------------------------------------------
     context.info("Buffering paved roads by 2 km")
     utm_crs = _estimate_utm(gdf_admin)
-    buffered = (
-        merged_roads[["geometry"]]
-        .to_crs(utm_crs)
-        .buffer(2000)
-        .union_all()
-    )
+    buffered = merged_roads[["geometry"]].to_crs(utm_crs).buffer(2000).union_all()
     buffered_gdf = gpd.GeoDataFrame(geometry=[buffered], crs=utm_crs).to_crs(4326)
 
     context.info("Intersecting buffered roads with admin boundaries")
-    roads_by_adm = gpd.overlay(buffered_gdf, gdf_admin[[id_col, "geometry"]], how="intersection")
+    roads_by_adm = gpd.overlay(
+        buffered_gdf, gdf_admin[[id_col, "geometry"]], how="intersection"
+    )
     if roads_by_adm.empty:
         context.warning("No road-admin intersection found — writing empty output")
         pd.DataFrame({id_col: gdf_admin[id_col]}).to_csv(out_csv, index=False)
@@ -244,7 +382,9 @@ def compute_rai(country_code, admin_level, gdf_admin, output_dir, work_dir,
     if adm0_path.exists():
         gdf_adm0 = gpd.read_file(adm0_path)
     else:
-        context.info("ADM0 boundary not found — dissolving admin boundaries for SMOD clip")
+        context.info(
+            "ADM0 boundary not found — dissolving admin boundaries for SMOD clip"
+        )
         gdf_adm0 = gdf_admin.dissolve()
 
     smod = rioxarray.open_rasterio(reclass_tif, masked=True).squeeze()
@@ -287,7 +427,9 @@ def compute_rai(country_code, admin_level, gdf_admin, output_dir, work_dir,
     context.info("Intersecting rural areas with buffered roads")
     accessible_rural = gpd.overlay(buffered_gdf, rural_single, how="intersection")
     if accessible_rural.empty:
-        context.warning("No intersection between rural areas and buffered roads — writing empty output")
+        context.warning(
+            "No intersection between rural areas and buffered roads — writing empty output"
+        )
         pd.DataFrame({id_col: gdf_admin[id_col]}).to_csv(out_csv, index=False)
         return str(out_csv)
 
@@ -305,7 +447,9 @@ def compute_rai(country_code, admin_level, gdf_admin, output_dir, work_dir,
         how="intersection",
     )
     if admin_accessible.empty:
-        context.warning("No accessible rural areas intersect admin boundaries — writing empty output")
+        context.warning(
+            "No accessible rural areas intersect admin boundaries — writing empty output"
+        )
         pd.DataFrame({id_col: gdf_admin[id_col]}).to_csv(out_csv, index=False)
         return str(out_csv)
 
@@ -362,11 +506,17 @@ def compute_rai(country_code, admin_level, gdf_admin, output_dir, work_dir,
         if rural_col in results.columns:
             results[ratio_col] = np.where(
                 results[rural_col].fillna(0) > 0,
-                (results[access_col].fillna(0) / results[rural_col].replace(0, np.nan) * 100).round(1),
+                (
+                    results[access_col].fillna(0)
+                    / results[rural_col].replace(0, np.nan)
+                    * 100
+                ).round(1),
                 0,
             )
         else:
-            context.info(f"  Skipping {ratio_col}: no rural denominator column '{rural_col}'")
+            context.info(
+                f"  Skipping {ratio_col}: no rural denominator column '{rural_col}'"
+            )
 
     dep_num = results["rural_access_dependents"].fillna(0)
     dep_den = results["rural_access_working"].replace(0, pd.NA)
