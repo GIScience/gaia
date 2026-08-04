@@ -11,18 +11,17 @@ import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
-os.environ["OGR_GEOJSON_MAX_OBJ_SIZE"] = "0" # no limits when reading complex geojsons
+os.environ["OGR_GEOJSON_MAX_OBJ_SIZE"] = "0"  # no limits when reading complex geojsons
 
 warnings.simplefilter("ignore", UserWarning)
 
 OVERPASS_FILTERS = {
     "education": ["nwr[amenity=school]"],
-    "hospitals": ["nwr[amenity=hospital]","nwr[healthcare=hospital]"],
-    
+    "hospitals": ["nwr[amenity=hospital]", "nwr[healthcare=hospital]"],
     "primary_healthcare": [
         'nwr["amenity"~"^(doctors|clinic)$"]["amenity"!="hospital"]["healthcare"!="hospital"]',
-        'nwr["healthcare"~"^(clinic|doctors|midwife|nurse|center)$"]["amenity" != "hospital"]["healthcare" != "hospital"]'
-    ] 
+        'nwr["healthcare"~"^(clinic|doctors|midwife|nurse|center)$"]["amenity" != "hospital"]["healthcare" != "hospital"]',
+    ],
 }
 
 OHSOME_BASE_URL = "https://api.heigit.org/ohsome-api-staging/v2"
@@ -46,35 +45,33 @@ OHSOME_FILTERS = {
 }
 
 
-
 def parse_overpass_csv_to_gpd(result):
     headers = result[0]
     rows = result[1:]
     df = pd.DataFrame(rows, columns=headers)
 
-    df['@lon'] = df['@lon'].astype(float)
-    df['@lat'] = df['@lat'].astype(float)
-    df['@id'] = df['@id'].astype(int)
+    df["@lon"] = df["@lon"].astype(float)
+    df["@lat"] = df["@lat"].astype(float)
+    df["@id"] = df["@id"].astype(int)
 
-    df = df.rename(columns={'@lon': 'lon', '@lat': 'lat', '@id': 'osmId'})
+    df = df.rename(columns={"@lon": "lon", "@lat": "lat", "@id": "osmId"})
 
     gdf = gpd.GeoDataFrame(
-        df,
-        geometry=gpd.points_from_xy(df['lon'], df['lat']),
-        crs="EPSG:4326"
+        df, geometry=gpd.points_from_xy(df["lon"], df["lat"]), crs="EPSG:4326"
     )
     return gdf
 
-def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_level, time=None):
+
+def fetch_overpass(
+    context_log, boundary_file, output_dir, country_code, admin_level, time=None
+):
     context_log.info("Using Overpass API to fetch facilities...")
     id_col = f"{admin_level.upper()}_PCODE"
 
     # Paths for output files
     temp_dir = output_dir / "Temporary"
     out_dir = output_dir / "Output"
-    expected_files = [
-        out_dir / f"{country_code}_{admin_level}_facilities.csv"
-    ] + [
+    expected_files = [out_dir / f"{country_code}_{admin_level}_facilities.csv"] + [
         temp_dir / f"{country_code}_{category}_raw.geojson"
         for category in OVERPASS_FILTERS.keys()
     ]
@@ -96,14 +93,14 @@ def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_l
 
     minx, miny, maxx, maxy = boundary.total_bounds.tolist()
     bbox_str = f"{miny},{minx},{maxy},{maxx}"
-    date_clause = f'[date:"{time}"]' if time else ''
+    date_clause = f'[date:"{time}"]' if time else ""
 
     api = overpass.API(timeout=300)
     category_gdfs = {}
 
     for category, exprs in OVERPASS_FILTERS.items():
         filter_parts = [f"{expr}({bbox_str});" for expr in exprs]
-        query = f'[out:csv(::lon,::lat,::id,::type)]{date_clause};({"".join(filter_parts)});out center;'
+        query = f"[out:csv(::lon,::lat,::id,::type)]{date_clause};({''.join(filter_parts)});out center;"
 
         try:
             result = api.get(query, build=False)
@@ -141,7 +138,9 @@ def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_l
         grouped = joined.groupby(id_col).size().rename(f"{cat}_count")
         counts = counts.merge(grouped, on=id_col, how="left")
 
-    counts = counts.fillna(0).astype({col: int for col in counts.columns if col != id_col})
+    counts = counts.fillna(0).astype(
+        {col: int for col in counts.columns if col != id_col}
+    )
 
     summary_path = out_dir / f"{country_code}_{admin_level}_facilities.csv"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,7 +150,9 @@ def fetch_overpass(context_log, boundary_file, output_dir, country_code, admin_l
         counts["ADM_PCODE"] = counts[id_col]
 
     # Reorder columns so ADM_PCODE comes right after the main ID
-    cols = [id_col, "ADM_PCODE"] + [c for c in counts.columns if c not in [id_col, "ADM_PCODE"]]
+    cols = [id_col, "ADM_PCODE"] + [
+        c for c in counts.columns if c not in [id_col, "ADM_PCODE"]
+    ]
     counts = counts[cols]
 
     counts.to_csv(summary_path, index=False)
@@ -165,6 +166,8 @@ def _post_with_retries(url, headers, body, context_log):
 
     The staging API is occasionally unavailable; short retries with backoff
     keep a long per-admin-unit loop from failing outright on a flaky server.
+    After the final attempt the request fails loudly instead of returning a
+    failed response, so incomplete data is never written silently.
     """
     delay = OHSOME_RETRY_BASE_DELAY
     for attempt in range(OHSOME_MAX_RETRIES + 1):
@@ -182,7 +185,10 @@ def _post_with_retries(url, headers, body, context_log):
             return r
 
         if attempt == OHSOME_MAX_RETRIES:
-            return r
+            raise RuntimeError(
+                f"Ohsome request failed after {OHSOME_MAX_RETRIES + 1} attempts: "
+                f"HTTP {r.status_code} from {url}"
+            )
 
         wait = delay
         retry_after = r.headers.get("Retry-After")
@@ -195,7 +201,7 @@ def _post_with_retries(url, headers, body, context_log):
         time.sleep(wait)
         delay *= 2
 
-    return r
+    raise RuntimeError(f"Ohsome request to {url} failed unexpectedly")
 
 
 def _extract_raw_geometries(context_log, boundary, output_dir, country_code, time=None):
@@ -222,15 +228,9 @@ def _extract_raw_geometries(context_log, boundary, output_dir, country_code, tim
             "aoi": aoi,
         }
 
-        try:
-            r = _post_with_retries(
-                OHSOME_EXTRACTION_ENDPOINT, headers, body, context_log
-            )
-            r.raise_for_status()
-            gdf = gpd.read_parquet(io.BytesIO(r.content))
-        except Exception as e:
-            context_log.info(f"Ohsome extraction failed for {category}: {e}")
-            continue
+        r = _post_with_retries(OHSOME_EXTRACTION_ENDPOINT, headers, body, context_log)
+        r.raise_for_status()
+        gdf = gpd.read_parquet(io.BytesIO(r.content))
 
         raw_path = temp_dir / f"{country_code}_{category}_raw.geojson"
         raw_path.parent.mkdir(parents=True, exist_ok=True)
@@ -296,12 +296,8 @@ def _query_ohsome_count(filter_str, aoi, end, context_log):
         "aoi": aoi,
     }
 
-    try:
-        r = _post_with_retries(OHSOME_COUNT_ENDPOINT, headers, body, context_log)
-        r.raise_for_status()
-    except Exception as e:
-        context_log.info(f"Ohsome query failed for filter '{filter_str}': {e}")
-        return None
+    r = _post_with_retries(OHSOME_COUNT_ENDPOINT, headers, body, context_log)
+    r.raise_for_status()
 
     data = r.json()
     value = _extract_count(data)
@@ -348,7 +344,9 @@ def fetch_ohsome(
         return None
 
     if not raw_all_exist:
-        _extract_raw_geometries(context_log, boundary, output_dir, country_code, time=time)
+        _extract_raw_geometries(
+            context_log, boundary, output_dir, country_code, time=time
+        )
 
     if summary_exists:
         return summary_path

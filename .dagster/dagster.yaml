@@ -15,5 +15,5 @@ concurrency:
   runs: 
     max_concurrent_runs: 4
   pools:
-    #default_limit: 1
+    default_limit: 5
     granularity: 'run'

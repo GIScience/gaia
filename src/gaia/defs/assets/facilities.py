@@ -11,6 +11,7 @@ from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_ohsome, fetch_ov
 @dg.asset(
     partitions_def=country_partitions,
     ins={"boundary_asset": dg.AssetIn()},
+    pool="ohsome",
 )
 def facilities_asset(
     context, config: FacilitiesAssetConfig, boundary_asset: str
