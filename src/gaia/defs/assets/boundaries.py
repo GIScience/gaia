@@ -17,7 +17,7 @@ def boundary_asset(context) -> str:
     download_shapefiles(country_code)
 
     data_dir = f"data/{country_code}"
-    max_admin_level = 5  # ADM0 to ADM5
+    max_admin_level = 2  # ADM0 to ADM2
     found_cols = {}
 
     if os.path.exists(data_dir):

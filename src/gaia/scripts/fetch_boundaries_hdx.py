@@ -54,6 +54,9 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
                 
                 if match:
                     level_num = match.group(1)
+                    if int(level_num) > 2:
+                        print(f"Skipping {file} (admin level {level_num} > 2)")
+                        continue
                     level = f"ADM{level_num}"
                 else:
                     print(f"Skipping {file} (unknown admin level)")
