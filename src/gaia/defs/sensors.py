@@ -29,7 +29,7 @@ def _latest_run_statuses_by_country(
         filters=dg.RunsFilter(job_name=local_workflow_job.name),
         limit=None,
     )
-    records = sorted(records, key=lambda r: r.dagster_run.creation_time, reverse=True)
+    records = sorted(records, key=lambda r: r.create_timestamp, reverse=True)
     by_country: dict[str, list[dg.DagsterRunStatus]] = {}
     for record in records:
         country = record.dagster_run.tags.get(PARTITION_TAG)
