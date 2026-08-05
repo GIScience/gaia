@@ -1,9 +1,11 @@
 import dagster as dg
 
+from gaia.defs.partitions import country_partitions
 
 local_workflow_job = dg.define_asset_job(
     name="local_workflow_job",
     description="Compute all GAIA risk assessment indicators for a country (no uploads).",
+    partitions_def=country_partitions,
     selection=[
         "boundary_asset",
         "demographics_asset",
