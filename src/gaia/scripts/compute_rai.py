@@ -506,11 +506,12 @@ def compute_rai(
         if rural_col in results.columns:
             results[ratio_col] = np.where(
                 results[rural_col].fillna(0) > 0,
-                (
+                np.round(
                     results[access_col].fillna(0)
                     / results[rural_col].replace(0, np.nan)
-                    * 100
-                ).round(1),
+                    * 100,
+                    1,
+                ),
                 0,
             )
         else:
@@ -519,18 +520,21 @@ def compute_rai(
             )
 
     dep_num = results["rural_access_dependents"].fillna(0)
-    dep_den = results["rural_access_working"].replace(0, pd.NA)
+    dep_den = results["rural_access_working"].replace(0, np.nan)
     results["rural_access_dependency_ratio"] = np.where(
         dep_den.notna() & (dep_den > 0),
-        (dep_num / dep_den * 100).round(1),
-        pd.NA,
+        np.round(dep_num / dep_den * 100, 1),
+        np.nan,
     )
 
     # ----------------------------------------------------------------
     # 9. Select columns in desired order and save
     # ----------------------------------------------------------------
     final_cols = [id_col] + [c for c in RAI_OUTPUT_COLUMNS if c in results.columns]
-    results[final_cols].round(1).to_csv(out_csv, index=False)
+    results[final_cols] = results[final_cols].apply(
+        lambda s: np.round(s, 1) if s.dtype.kind == "f" else s
+    )
+    results[final_cols].to_csv(out_csv, index=False)
     context.info(f"RAI CSV written: {out_csv} ({len(final_cols)} cols)")
 
     shutil.rmtree(temp_dir, ignore_errors=True)
