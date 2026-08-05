@@ -125,11 +125,12 @@ def country_workflow_sensor(context: dg.SensorEvaluationContext):
     else:
         return dg.SkipReason("Every country has succeeded")
 
+    attempt = len(statuses.get(next_country, [])) + 1
     return dg.SensorResult(
         run_requests=[
             dg.RunRequest(
                 partition_key=next_country,
-                run_key=f"country-{next_country}",
+                run_key=f"country-{next_country}-{attempt}",
             )
         ]
     )
