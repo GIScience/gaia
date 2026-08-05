@@ -7,8 +7,14 @@ local_workflow_job = dg.define_asset_job(
     description="Compute all GAIA risk assessment indicators for a country (no uploads).",
     partitions_def=country_partitions,
     config={
-        "execution": {"config": {"max_concurrent": 1}},
-        "retries": {"enabled": True, "max_retries": 2},
+        "execution": {
+            "config": {
+                "multiprocess": {
+                    "max_concurrent": 1,
+                    "retries": {"enabled": {}},
+                }
+            }
+        }
     },
     selection=[
         "boundary_asset",
