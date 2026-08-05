@@ -4,7 +4,7 @@ import requests
 import dagster as dg
 
 from gaia.defs.partitions import country_partitions, multi_partitions
-from gaia.defs.resources import MinioResource, HdxResource
+from gaia.defs.resources import S3Resource, HdxResource
 
 
 @dg.asset(
@@ -19,7 +19,7 @@ from gaia.defs.resources import MinioResource, HdxResource
     ],
     partitions_def=multi_partitions,
 )
-def upload_minio_asset(context, minio: MinioResource) -> None:
+def upload_s3_asset(context, s3: S3Resource) -> None:
     parts = context.partition_key.split("|")
     country, category = parts[1], parts[0]
 
@@ -36,10 +36,8 @@ def upload_minio_asset(context, minio: MinioResource) -> None:
         return
 
     context.log.info(f"[{country}] Found {category} outputs: {matched}")
-    minio.upload(country, category)
-    context.log.info(
-        f"[{country}] Uploaded {category} dataset(s) to MinIO successfully."
-    )
+    s3.upload(country, category)
+    context.log.info(f"[{country}] Uploaded {category} dataset(s) to S3 successfully.")
 
 
 @dg.asset(

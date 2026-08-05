@@ -10,7 +10,7 @@ DATA_DIR = REPO_ROOT / "data"
 DEFAULT_ADMIN_LEVELS = ["ADM2"]
 DEFAULT_RPS = ["10", "50", "100", "500"]
 DEFAULT_FLOOD_THRESHOLD = 0.3  # meters
-DEFAULT_FACILITIES_API = "ohsome-api" #or overpass
+DEFAULT_FACILITIES_API = "ohsome-api"  # or overpass
 DEFAULT_CROPS_YEARS = [2023, 2024]
 DEFAULT_NDVI_YEAR = [2022]
 DEFAULT_ACLED_YEAR = 2021
@@ -53,13 +53,13 @@ class CycloneExposureConfig(SetupConfig, FacilitiesConfig):
     pass
 
 
-class MinioConfig(dg.Config):
-    endpoint: str = os.getenv("MINIO_ENDPOINT", "hot.storage.heigit.org")
-    bucket: str = os.getenv("MINIO_BUCKET", "heigit-hdx-public")
-    access_key: str = os.getenv("MINIO_ACCESS_KEY")
-    secret_key: str = os.getenv("MINIO_SECRET_KEY")
-    dest_prefix: str = os.getenv("MINIO_DEST_PREFIX", "risk_assessment_inputs")
-    secure: bool = os.getenv("MINIO_SECURE", "true").lower() == "true"
+class S3Config(dg.Config):
+    endpoint: str = os.getenv("S3_ENDPOINT", "hot.storage.heigit.org")
+    bucket: str = os.getenv("S3_BUCKET", "heigit-hdx-public")
+    access_key: str = os.getenv("S3_ACCESS_KEY")
+    secret_key: str = os.getenv("S3_SECRET_KEY")
+    dest_prefix: str = os.getenv("S3_DEST_PREFIX", "risk_assessment_inputs")
+    secure: bool = os.getenv("S3_SECURE", "true").lower() == "true"
 
 
 class HdxConfig(dg.Config):

@@ -24,11 +24,11 @@ local_workflow_job = dg.define_asset_job(
 
 visualization_job = dg.define_asset_job(
     name="visualization_job",
-    description="Generate combined parquet, risk scores and PMTiles, and upload to MinIO.",
+    description="Generate combined parquet, risk scores and PMTiles, and upload to S3.",
     selection=[
         "boundary_asset",
         "prep_visualization_asset",
         "risk_score_asset",
-        "upload_viz_minio_asset",
+        "upload_viz_s3_asset",
     ],
 )

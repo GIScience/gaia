@@ -3,18 +3,18 @@ import os
 import dagster as dg
 
 
-class MinioResource(dg.ConfigurableResource):
-    endpoint: str = os.getenv("MINIO_ENDPOINT", "hot.storage.heigit.org")
-    bucket: str = os.getenv("MINIO_BUCKET", "heigit-hdx-public")
-    access_key: str = os.getenv("MINIO_ACCESS_KEY")
-    secret_key: str = os.getenv("MINIO_SECRET_KEY")
-    dest_prefix: str = os.getenv("MINIO_DEST_PREFIX", "risk_assessment_inputs")
-    secure: bool = os.getenv("MINIO_SECURE", "true").lower() == "true"
+class S3Resource(dg.ConfigurableResource):
+    endpoint: str = os.getenv("S3_ENDPOINT", "hot.storage.heigit.org")
+    bucket: str = os.getenv("S3_BUCKET", "heigit-hdx-public")
+    access_key: str = os.getenv("S3_ACCESS_KEY")
+    secret_key: str = os.getenv("S3_SECRET_KEY")
+    dest_prefix: str = os.getenv("S3_DEST_PREFIX", "risk_assessment_inputs")
+    secure: bool = os.getenv("S3_SECURE", "true").lower() == "true"
 
     def upload(self, country: str, dataset_type: str) -> None:
-        from gaia.scripts.upload_minio import upload_to_minio
+        from gaia.scripts.upload_s3 import upload_to_s3
 
-        upload_to_minio(
+        upload_to_s3(
             country=country,
             dataset_type=dataset_type,
             endpoint=self.endpoint,
@@ -56,7 +56,7 @@ class HdxResource(dg.ConfigurableResource):
 def resources() -> dg.Definitions:
     return dg.Definitions(
         resources={
-            "minio": MinioResource(),
+            "s3": S3Resource(),
             "hdx": HdxResource(),
         }
     )

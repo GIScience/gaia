@@ -7,7 +7,7 @@ import dagster as dg
 from gaia.defs.partitions import country_partitions
 from gaia.defs.constants import SetupConfig
 from gaia.defs.utils import find_best_available_admin_level
-from gaia.scripts.fetch_access_minio import compute_access_population
+from gaia.scripts.fetch_access_s3 import compute_access_population
 
 
 @dg.asset(

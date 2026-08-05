@@ -9,7 +9,7 @@ import pandas as pd
 import dagster as dg
 
 from gaia.defs.partitions import country_partitions
-from gaia.defs.resources import MinioResource
+from gaia.defs.resources import S3Resource
 from gaia.defs.utils import (
     normalize_indicators,
     guess_missing_indicators,
@@ -18,7 +18,7 @@ from gaia.defs.utils import (
 
 
 @dg.asset(
-    deps=["boundary_asset", "upload_minio_asset"],
+    deps=["boundary_asset", "upload_s3_asset"],
     partitions_def=country_partitions,
 )
 def prep_visualization_asset(context) -> list[str]:
@@ -413,7 +413,7 @@ def risk_score_asset(context, prep_visualization_asset: List[str]) -> list[str]:
     deps=["prep_visualization_asset", "risk_score_asset"],
     partitions_def=country_partitions,
 )
-def upload_viz_minio_asset(context, minio: MinioResource) -> None:
+def upload_viz_s3_asset(context, s3: S3Resource) -> None:
     country = context.partition_key.upper()
     output_dir = os.path.join("data", country, "Output")
 
@@ -435,11 +435,9 @@ def upload_viz_minio_asset(context, minio: MinioResource) -> None:
 
     # This will upload to bucket/{country}/visualization/
     if pmtiles_files:
-        minio.upload(country, "pmtiles")
+        s3.upload(country, "pmtiles")
 
     if risk_files:
-        minio.upload(country, "risk")
+        s3.upload(country, "risk")
 
-    context.log.info(
-        f"[{country}] Visualization datasets uploaded to MinIO successfully."
-    )
+    context.log.info(f"[{country}] Visualization datasets uploaded to S3 successfully.")

@@ -8,7 +8,7 @@ from minio.error import S3Error
 def upload_folder(
     client: Minio, bucket: str, in_dir: str, dest_prefix: str, file_filter=None
 ):
-    """Walk through all files in in_dir and upload to MinIO under dest_prefix."""
+    """Walk through all files in in_dir and upload to S3 under dest_prefix."""
     for root, dirs, files in os.walk(in_dir):
         for filename in files:
             if filename.endswith(".DS_Store"):
@@ -30,7 +30,7 @@ def upload_folder(
                 print(f"Error uploading {local_path}: {err}")
 
 
-def upload_to_minio(
+def upload_to_s3(
     country: str,
     dataset_type: str,
     endpoint: str,
@@ -80,7 +80,7 @@ def _parse_bool(value) -> bool:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Upload files to MinIO bucket.")
+    parser = argparse.ArgumentParser(description="Upload files to S3 bucket.")
     parser.add_argument("country", type=str, help="ISO 3166-3 country code, e.g. 'RWA'")
     parser.add_argument(
         "dataset_type",
@@ -98,28 +98,28 @@ def parse_args():
     )
     parser.add_argument(
         "--endpoint",
-        default=os.getenv("MINIO_ENDPOINT", "hot.storage.heigit.org"),
-        help="MinIO endpoint (host only)",
+        default=os.getenv("S3_ENDPOINT", "hot.storage.heigit.org"),
+        help="S3 endpoint (host only)",
     )
     parser.add_argument(
         "--bucket",
-        default=os.getenv("MINIO_BUCKET", "heigit-hdx-public"),
-        help="MinIO bucket",
+        default=os.getenv("S3_BUCKET", "heigit-hdx-public"),
+        help="S3 bucket",
     )
     parser.add_argument(
-        "--access_key", default=os.getenv("MINIO_ACCESS_KEY"), help="MinIO access key"
+        "--access_key", default=os.getenv("S3_ACCESS_KEY"), help="S3 access key"
     )
     parser.add_argument(
-        "--secret_key", default=os.getenv("MINIO_SECRET_KEY"), help="MinIO secret key"
+        "--secret_key", default=os.getenv("S3_SECRET_KEY"), help="S3 secret key"
     )
     parser.add_argument(
         "--dest_prefix",
-        default=os.getenv("MINIO_DEST_PREFIX", "risk_assessment_inputs"),
+        default=os.getenv("S3_DEST_PREFIX", "risk_assessment_inputs"),
         help="Destination prefix inside the bucket",
     )
     parser.add_argument(
         "--secure",
-        default=os.getenv("MINIO_SECURE", "true"),
+        default=os.getenv("S3_SECURE", "true"),
         type=_parse_bool,
         help="Use HTTPS (default: true)",
     )
@@ -129,7 +129,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     try:
-        upload_to_minio(
+        upload_to_s3(
             args.country,
             args.dataset_type,
             endpoint=args.endpoint,
