@@ -38,7 +38,8 @@ IBTRACS_URL = (
     "https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/"
     "v04r01/access/shapefile/IBTrACS.since1980.list.v04r01.lines.zip"
 )
-DOWNLOAD_DIR = "downloads"
+ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
+DOWNLOAD_DIR = os.path.join(ROOT_DIR, "downloads")
 IBTRACS_LOCAL_ZIP = os.path.join(
     DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.lines.zip"
 )
