@@ -1,60 +1,69 @@
 import os
 import sys
 from typing import List
-import requests
 import rasterio
 import pandas as pd
 import geopandas as gpd
 import argparse
 import logging
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rasterstats import zonal_stats
 
 # --- UPDATED CONSTANTS ---
 INDICATORS = {
-    "total_pop": {"ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80], "sexes": ["f", "m"]},
-    "female_pop": {"ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80], "sexes": ["f"]},
+    "total_pop": {
+        "ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80],
+        "sexes": ["f", "m"],
+    },
+    "female_pop": {
+        "ages": [0, 1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80],
+        "sexes": ["f"],
+    },
     "children_u5": {"ages": [0, 1], "sexes": ["f", "m"]},
     "female_u5": {"ages": [0, 1], "sexes": ["f"]},
     "elderly": {"ages": [65, 70, 75, 80], "sexes": ["f", "m"]},
     "pop_u15": {"ages": [0, 1, 5, 10], "sexes": ["f", "m"]},
     "female_u15": {"ages": [0, 1, 5, 10], "sexes": ["f"]},
-    
     # 1. Women of Reproductive Age (15-49 years old)
     "wra_pop": {"ages": [15, 20, 25, 30, 35, 40, 45], "sexes": ["f"]},
-    
     # 2. Dependency Ratio Components (Calculated down in aggregate workflow)
     "dep_dependents": {"ages": [0, 1, 5, 10, 65, 70, 75, 80], "sexes": ["f", "m"]},
-    "dep_working": {"ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60], "sexes": ["f", "m"]}
+    "dep_working": {
+        "ages": [15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
+        "sexes": ["f", "m"],
+    },
 }
 
 BASE_URL = "https://data.worldpop.org/GIS"
 POP_TIMEFRAME = "Global_2015_2030"
 RELEASE = "R2025A"
-YEAR = "2030" 
+YEAR = "2030"
+DOWNLOAD_WORKERS = 8
 # -------------------------
 
+
 def download_url(url, dest_path):
-    resp = requests.get(url, stream=True)
-    resp.raise_for_status()
-    with open(dest_path, "wb") as fp:
-        for chunk in resp.iter_content(1024 * 1024):
-            fp.write(chunk)
+    from gaia.scripts.download_utils import download_file
+
+    download_file(url, dest_path)
+
 
 def merge_and_sum_rasters(raster_paths: List[str], out_path: str, context_log):
     if not raster_paths:
         raise ValueError("No rasters passed for merging!")
     with rasterio.open(raster_paths[0]) as src0:
         meta = src0.meta.copy()
-        data_sum = src0.read(1, masked=True).filled(0).astype("float64")
+        data_sum = src0.read(1, masked=True).filled(0).astype("float32")
     for p in raster_paths[1:]:
         with rasterio.open(p) as src:
-            arr = src.read(1, masked=True).filled(0).astype("float64")
+            arr = src.read(1, masked=True).filled(0).astype("float32")
             data_sum += arr
     meta.update(dtype="float32", count=1, compress="lzw", nodata=0)
     with rasterio.open(out_path, "w", **meta) as dst:
-        dst.write(data_sum.astype("float32"), 1)
+        dst.write(data_sum, 1)
     context_log.info(f"Wrote merged raster to {out_path}")
+
 
 def fetch_worldpop(country, context_log=None, worldpop_code=None):
     if context_log is None:
@@ -75,7 +84,7 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
     if all(os.path.exists(path) for path in expected_outputs):
         context_log.info(f"[{country}] → indicators exist, skipping.")
         return expected_outputs
-    
+
     out_dir_raw = os.path.join(out_dir, "worldpop_raw")
     os.makedirs(out_dir_raw, exist_ok=True)
 
@@ -85,19 +94,27 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
             for age in ind["ages"]:
                 needed_bins.add((sex, age))
 
-    for sex, age in needed_bins:
+    def _download_bin(bin_tuple):
+        sex, age = bin_tuple
         age_str = str(age).zfill(2)
         fname = f"{worldpop_code_low}_{sex}_{age_str}_{YEAR}_CN_100m_{RELEASE}_v1.tif"
         url = f"{BASE_URL}/AgeSex_structures/{POP_TIMEFRAME}/{RELEASE}/{YEAR}/{worldpop_code}/v1/100m/constrained/{fname}"
-        
-        dest = os.path.join(out_dir_raw, f"{country}_{sex}_{age}_{YEAR}_constrained.tif")
+        dest = os.path.join(
+            out_dir_raw, f"{country}_{sex}_{age}_{YEAR}_constrained.tif"
+        )
         if not os.path.exists(dest):
             context_log.info(f"[{country}] → downloading {sex}_{age_str} from {url}")
-            try:
-                download_url(url, dest)
-            except Exception as e:
-                context_log.error(f"Failed to download {url}: {e}")
-                sys.exit(1)
+            download_url(url, dest)
+        return url
+
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_WORKERS) as ex:
+        futures = [ex.submit(_download_bin, b) for b in sorted(needed_bins)]
+        try:
+            for fut in as_completed(futures):
+                fut.result()
+        except Exception as e:
+            context_log.error(f"Failed to download WorldPop bin: {e}")
+            sys.exit(1)
 
     processed = []
     for ind_name, ind in INDICATORS.items():
@@ -106,7 +123,9 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
             for sex in ind["sexes"]
             for age in ind["ages"]
         ]
-        merged_out = os.path.join(out_dir, f"{country}_pop_{ind_name}_{YEAR}_constrained.tif")
+        merged_out = os.path.join(
+            out_dir, f"{country}_pop_{ind_name}_{YEAR}_constrained.tif"
+        )
         if not os.path.exists(merged_out):
             merge_and_sum_rasters(filtered_paths, merged_out, context_log)
         processed.append(merged_out)
@@ -116,7 +135,9 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
     return processed
 
 
-def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log=None) -> str:
+def aggregate_worldpop_to_csv(
+    country_code: str, admin_level="ADM2", context_log=None
+) -> str:
     """
     Download WorldPop indicators for a country and save CSV.
     """
@@ -128,6 +149,15 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
     if context_log is None:
         logging.basicConfig(level=logging.INFO)
         context_log = logging.getLogger("worldpop")
+
+    csv_path = os.path.join(
+        output_dir, f"{country_code}_{admin_level}_demographics.csv"
+    )
+    if os.path.exists(csv_path):
+        context_log.info(
+            f"[{country_code}] → {admin_level} demographics CSV exists, skipping."
+        )
+        return csv_path
 
     # 1) Fetch indicators into data/{country}/Temporary
     tifs = fetch_worldpop(country=country_code, context_log=context_log)
@@ -162,9 +192,12 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
 
     # Process and clean numeric values
     numeric_cols = [c for c in results.columns if c not in [admin_col, "ADM_PCODE"]]
-    results[numeric_cols] = results[numeric_cols].apply(
-        pd.to_numeric, errors="coerce"
-    ).fillna(0).replace([float("inf"), float("-inf")], 0)
+    results[numeric_cols] = (
+        results[numeric_cols]
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0)
+        .replace([float("inf"), float("-inf")], 0)
+    )
 
     # Round populations to absolute whole numbers before ratio logic
     results[numeric_cols] = results[numeric_cols].round(0).astype(int)
@@ -173,8 +206,10 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
     # Formula: (Dependents / Working Age Population) * 100
     # Uses a safe division to avoid errors if a polygon has 0 working-age inhabitants
     results["dependency_ratio"] = (
-        (results["dep_dependents"] / results["dep_working"].replace(0, pd.NA)) * 100
-    ).fillna(0).round(2)
+        ((results["dep_dependents"] / results["dep_working"].replace(0, pd.NA)) * 100)
+        .fillna(0)
+        .round(2)
+    )
 
     # Clean up the intermediate components used for calculation so they don't bloat the final CSV
     results.drop(columns=["dep_dependents", "dep_working"], inplace=True)
@@ -187,8 +222,11 @@ def aggregate_worldpop_to_csv(country_code: str, admin_level="ADM2", context_log
 
     return csv_path
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Download and aggregate WorldPop indicators for a country.")
+    parser = argparse.ArgumentParser(
+        description="Download and aggregate WorldPop indicators for a country."
+    )
     parser.add_argument("country", help="ISO3 country code (e.g., STP)")
     parser.add_argument(
         "--admin-level",
@@ -203,9 +241,7 @@ if __name__ == "__main__":
     country = args.country.upper()
 
     csv_file = aggregate_worldpop_to_csv(
-        country_code=country,
-        admin_level=args.admin_level,
-        context_log=logger
+        country_code=country, admin_level=args.admin_level, context_log=logger
     )
 
     print(f"\nGenerated CSV: {csv_file}")

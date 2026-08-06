@@ -4,6 +4,7 @@ import logging
 import argparse
 import requests
 import geopandas as gpd
+import numpy as np
 import rasterio
 from rasterio.merge import merge
 from rasterio.mask import mask
@@ -52,21 +53,19 @@ def bbox_intersects(tile_bbox, geom_bbox):
 
 
 def download_file(context, fname, temporary_dir, rp):
+    from gaia.scripts.download_utils import download_file as _download_file
+
     url = BASE_URL_TEMPLATE.format(rp=f"RP{rp}") + fname
     outpath = os.path.join(temporary_dir, fname)
     if os.path.exists(outpath):
         context.info(f"Already exists: {fname}")
         return outpath
     context.info(f"Downloading {fname}...")
-    r = requests.get(url, stream=True)
-    if r.status_code == 200:
-        with open(outpath, "wb") as f:
-            for chunk in r.iter_content(1024 * 64):
-                f.write(chunk)
-        return outpath
-    else:
+    path = _download_file(url, outpath, soft=True)
+    if path is None:
         context.warning(f"Failed to download {fname}")
         return None
+    return path
 
 
 def process_country_rp(context, country_code, rp, admin_level="ADM0"):
@@ -433,28 +432,41 @@ def process_flood_impact(
                     rp_df[f"RP{rp}_crops_{THRESH_SUFFIX}_croppct"] = 0.0
 
         # ---- Flooded population ----
+        # All WorldPop indicator rasters share the same grid, so reproject the
+        # flood raster once per RP instead of once per indicator.
+        ref_pop = rioxarray.open_rasterio(tif_map[indicators[0]], masked=True).squeeze()
+        flood_aligned = flood.rio.reproject_match(
+            ref_pop, resampling=Resampling.bilinear
+        )
+        flood_mask = (flood_aligned > flood_threshold).astype("float32")
+        del flood_aligned
+
         for label in indicators:
             pop_raster_path = tif_map[label]
             pop_raster = rioxarray.open_rasterio(pop_raster_path, masked=True).squeeze()
 
-            flood_aligned = flood.rio.reproject_match(
-                pop_raster, resampling=Resampling.bilinear
-            )
-            flood_mask = (flood_aligned > flood_threshold).astype("float32")
-            flooded_pop = pop_raster * flood_mask
-
-            tmp_flooded = temp_dir / f"tmp_flooded_{label}_RP{rp}_{THRESH_SUFFIX}.tif"
-            with rasterio.open(pop_raster_path) as src:
-                meta = src.meta.copy()
-                meta.update(
-                    compress="lzw",
-                    tiled=True,
-                    bigtiff="yes" if src.width * src.height > 2**32 else "no",
+            if (
+                pop_raster.shape != ref_pop.shape
+                or pop_raster.rio.transform() != ref_pop.rio.transform()
+                or pop_raster.rio.crs != ref_pop.rio.crs
+            ):
+                flood_aligned_label = flood.rio.reproject_match(
+                    pop_raster, resampling=Resampling.bilinear
                 )
-            with rasterio.open(tmp_flooded, "w", **meta) as dst:
-                dst.write(flooded_pop.values, 1)
+                flood_mask_label = (flood_aligned_label > flood_threshold).astype(
+                    "float32"
+                )
+                flooded_pop = pop_raster * flood_mask_label
+            else:
+                flooded_pop = pop_raster * flood_mask
 
-            stats = zonal_stats(gdf, tmp_flooded, stats="sum", nodata=0)
+            stats = zonal_stats(
+                gdf,
+                flooded_pop.values.astype(np.float32),
+                affine=pop_raster.rio.transform(),
+                stats="sum",
+                nodata=0,
+            )
             rp_df[f"RP{rp}_{label}_{THRESH_SUFFIX}"] = [
                 s["sum"] if s["sum"] is not None else 0 for s in stats
             ]
@@ -480,63 +492,67 @@ def process_flood_impact(
         )
 
         # ---- Flooded facilities ----
-        for category, filepath in geojsons_map.items():
-            if not Path(filepath).exists():
-                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = 0
-                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = 0
-                continue
+        with rasterio.open(clipped_path) as src:
+            for category, filepath in geojsons_map.items():
+                if not Path(filepath).exists():
+                    rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = 0
+                    rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = 0
+                    continue
 
-            facilities = gpd.read_file(filepath)
-            if facilities.empty:
-                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = 0
-                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = 0
-                continue
+                facilities = gpd.read_file(filepath)
+                if facilities.empty:
+                    rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = 0
+                    rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = 0
+                    continue
 
-            if not all(facilities.geometry.type == "Point"):
+                if not all(facilities.geometry.type == "Point"):
+                    if facilities.crs != flood.rio.crs:
+                        facilities = facilities.to_crs(flood.rio.crs)
+                    facilities["geometry"] = facilities.geometry.centroid
                 if facilities.crs != flood.rio.crs:
                     facilities = facilities.to_crs(flood.rio.crs)
-                facilities["geometry"] = facilities.geometry.centroid
-            if facilities.crs != flood.rio.crs:
-                facilities = facilities.to_crs(flood.rio.crs)
 
-            coords = [
-                (x, y) for x, y in zip(facilities.geometry.x, facilities.geometry.y)
-            ]
-            with rasterio.open(clipped_path) as src:
+                coords = [
+                    (x, y) for x, y in zip(facilities.geometry.x, facilities.geometry.y)
+                ]
                 values = [v[0] for v in src.sample(coords)]
-            facilities["flooded"] = [1 if v > flood_threshold else 0 for v in values]
+                facilities["flooded"] = [
+                    1 if v > flood_threshold else 0 for v in values
+                ]
 
-            joined = gpd.sjoin(
-                facilities,
-                gdf[[f"{admin_level}_PCODE", "geometry"]],
-                how="inner",
-                predicate="within",
-            )
-            grouped = (
-                joined.groupby(f"{admin_level}_PCODE")["flooded"]
-                .agg(["mean", "sum"])
-                .reset_index()
-            )
+                joined = gpd.sjoin(
+                    facilities,
+                    gdf[[f"{admin_level}_PCODE", "geometry"]],
+                    how="inner",
+                    predicate="within",
+                )
+                grouped = (
+                    joined.groupby(f"{admin_level}_PCODE")["flooded"]
+                    .agg(["mean", "sum"])
+                    .reset_index()
+                )
 
-            grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = (
-                grouped["mean"] * 100
-            ).round(1)
-            grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = grouped["sum"].astype(
-                int
-            )
-            grouped = grouped.drop(columns=["mean", "sum"])
+                grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = (
+                    grouped["mean"] * 100
+                ).round(1)
+                grouped[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = grouped[
+                    "sum"
+                ].astype(int)
+                grouped = grouped.drop(columns=["mean", "sum"])
 
-            rp_df = rp_df.merge(grouped, on=f"{admin_level}_PCODE", how="left")
-            rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = rp_df[
-                f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"
-            ].fillna(0)
-            rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = (
-                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"].fillna(0).astype(int)
-            )
+                rp_df = rp_df.merge(grouped, on=f"{admin_level}_PCODE", how="left")
+                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"] = rp_df[
+                    f"RP{rp}_{category}_{THRESH_SUFFIX}_pct"
+                ].fillna(0)
+                rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"] = (
+                    rp_df[f"RP{rp}_{category}_{THRESH_SUFFIX}_count"]
+                    .fillna(0)
+                    .astype(int)
+                )
 
-            context.info(
-                f"Processed flooded facilities for {category} >{flood_threshold} m ({THRESH_SUFFIX})"
-            )
+                context.info(
+                    f"Processed flooded facilities for {category} >{flood_threshold} m ({THRESH_SUFFIX})"
+                )
 
         final_df = final_df.merge(rp_df, on=f"{admin_level}_PCODE", how="left")
         context.info(f"Processed RP{rp}")

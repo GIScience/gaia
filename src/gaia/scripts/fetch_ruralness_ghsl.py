@@ -140,36 +140,51 @@ def compute_rural_population(
         # Store total population sums
         total_pop_counts = {}
 
+        # All WorldPop indicator rasters share the same grid, so reproject the
+        # SMOD raster once instead of once per indicator.
+        ref_pop = rioxarray.open_rasterio(tif_map[indicators[0]], masked=True).squeeze()
+        smod_aligned = smod.rio.reproject_match(
+            ref_pop, resampling=rasterio.enums.Resampling.nearest
+        )
+        rural_mask = (smod_aligned == 1).astype("float32")
+
         for label in indicators:
             pop_raster_path = tif_map[label]
             pop_raster = rioxarray.open_rasterio(pop_raster_path, masked=True).squeeze()
 
-            # Align SMOD raster to population raster
-            smod_aligned = smod.rio.reproject_match(
-                pop_raster, resampling=rasterio.enums.Resampling.nearest
-            )
-            rural_mask = (smod_aligned == 1).astype("float32")
-            rural_pop = pop_raster * rural_mask
-
-            tmp_rural = work_dir / f"tmp_rural_{label}.tif"
-            with rasterio.open(pop_raster_path) as src:
-                meta = src.meta.copy()
-                meta.update(
-                    compress="lzw",
-                    tiled=True,
-                    bigtiff="yes" if src.width * src.height > 2**32 else "no",
+            if (
+                pop_raster.shape != ref_pop.shape
+                or pop_raster.rio.transform() != ref_pop.rio.transform()
+                or pop_raster.rio.crs != ref_pop.rio.crs
+            ):
+                smod_aligned_label = smod.rio.reproject_match(
+                    pop_raster, resampling=rasterio.enums.Resampling.nearest
                 )
-            with rasterio.open(tmp_rural, "w", **meta) as dst:
-                dst.write(rural_pop.values, 1)
+                rural_mask_label = (smod_aligned_label == 1).astype("float32")
+                rural_pop = pop_raster * rural_mask_label
+            else:
+                rural_pop = pop_raster * rural_mask
 
             # Rural population sums per admin unit
-            stats = zonal_stats(gdf, tmp_rural, stats="sum", nodata=0)
+            stats = zonal_stats(
+                gdf,
+                rural_pop.values.astype(np.float32),
+                affine=pop_raster.rio.transform(),
+                stats="sum",
+                nodata=0,
+            )
             rural_df[f"{label}_rural"] = [
                 s["sum"] if s["sum"] is not None else 0 for s in stats
             ]
 
             # Total population sums per admin unit
-            total_stats = zonal_stats(gdf, pop_raster_path, stats="sum", nodata=0)
+            total_stats = zonal_stats(
+                gdf,
+                pop_raster.values.astype(np.float32),
+                affine=pop_raster.rio.transform(),
+                stats="sum",
+                nodata=0,
+            )
             total_pop_counts[label] = [
                 s["sum"] if s["sum"] is not None else 0 for s in total_stats
             ]
@@ -218,14 +233,6 @@ def compute_rural_population(
         if unzip_dir and unzip_dir.exists():
             shutil.rmtree(unzip_dir)
             context.info(f"Deleted {unzip_dir}")
-
-            # cleanup tmp_rural rasters
-        for tmp_file in work_dir.glob("tmp_rural_*.tif"):
-            try:
-                tmp_file.unlink()
-                context.info(f"Deleted {tmp_file}")
-            except Exception as e:
-                context.info(f"Failed to delete {tmp_file}: {e}")
 
     return str(out_csv)
 

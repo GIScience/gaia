@@ -7,13 +7,16 @@ import tempfile
 import geopandas as gpd
 import re
 
+
 def get_dataset_resources(dataset_id):
     print(f"Fetching dataset metadata for: {dataset_id}")
     api_url = f"https://data.humdata.org/api/3/action/package_show?id={dataset_id}"
     headers = {"User-Agent": "Mozilla/5.0 (compatible; GaiaDownloader/1.0)"}
     r = requests.get(api_url, headers=headers)
     if r.status_code == 404:
-        print(f"Dataset '{dataset_id}' not found on HDX. Please check the country code.")
+        print(
+            f"Dataset '{dataset_id}' not found on HDX. Please check the country code."
+        )
         sys.exit(1)
     try:
         r.raise_for_status()
@@ -26,18 +29,18 @@ def get_dataset_resources(dataset_id):
         sys.exit(1)
     return data["result"]["resources"]
 
+
 def download_file(url, save_path):
+    from gaia.scripts.download_utils import download_file as _download_file
+
     headers = {"User-Agent": "Mozilla/5.0 (compatible; GaiaDownloader/1.0)"}
-    with requests.get(url, headers=headers, stream=True) as r:
-        r.raise_for_status()
-        with open(save_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+    _download_file(url, save_path, headers=headers)
     print(f"Saved to: {save_path}")
 
 
-def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code, simplify_tolerance=0.0001):
+def convert_shapefiles_to_geojson(
+    input_folder, base_output_folder, country_code, simplify_tolerance=0.0001
+):
     country_code = country_code.upper()
     output_folder = os.path.join(base_output_folder, country_code)
     os.makedirs(output_folder, exist_ok=True)
@@ -51,7 +54,7 @@ def convert_shapefiles_to_geojson(input_folder, base_output_folder, country_code
                 # Robust Regex to find any digit following 'adm', 'admin', or 'admbndp'
                 # This catches: adm0, admin0, admbndp0, gab_adm1_etc
                 match = re.search(r"adm(?:bndp|in)?(\d)", basename)
-                
+
                 if match:
                     level_num = match.group(1)
                     if int(level_num) > 2:
@@ -82,7 +85,15 @@ def find_shapefile_resources(resources):
     urls = []
 
     shapefile_keywords = ["shp", "shapefile"]
-    admin_keywords = ["adm", "admin", "ADM", "ADMIN", "administrative", "Administrative", "Admin"]
+    admin_keywords = [
+        "adm",
+        "admin",
+        "ADM",
+        "ADMIN",
+        "administrative",
+        "Administrative",
+        "Admin",
+    ]
     geojson_keywords = ["geojson", "json"]
     geopackage_keywords = ["gpkg", "gokg", "geopackage"]
 
@@ -93,7 +104,15 @@ def find_shapefile_resources(resources):
         original_url = res.get("url")  # preserve original capitalization
 
         # 1. Format-based detection
-        if fmt in ("zipped shapefiles", "shapefile", "zip", "geojson", "json", "gpkg", "gokg"):
+        if fmt in (
+            "zipped shapefiles",
+            "shapefile",
+            "zip",
+            "geojson",
+            "json",
+            "gpkg",
+            "gokg",
+        ):
             urls.append(original_url)
             continue
 
@@ -107,19 +126,26 @@ def find_shapefile_resources(resources):
             urls.append(original_url)
             continue
 
-        if any(k in name for k in admin_keywords) or any(k in url for k in admin_keywords):
+        if any(k in name for k in admin_keywords) or any(
+            k in url for k in admin_keywords
+        ):
             urls.append(original_url)
             continue
 
-        if any(k in name for k in geojson_keywords) or any(k in url for k in geojson_keywords):
+        if any(k in name for k in geojson_keywords) or any(
+            k in url for k in geojson_keywords
+        ):
             urls.append(original_url)
             continue
 
-        if any(k in name for k in geopackage_keywords) or any(k in url for k in geopackage_keywords):
+        if any(k in name for k in geopackage_keywords) or any(
+            k in url for k in geopackage_keywords
+        ):
             urls.append(original_url)
             continue
 
     return urls
+
 
 def download_shapefiles(country_code):
     dataset_id = f"cod-ab-{country_code.lower()}"
@@ -147,6 +173,7 @@ def download_shapefiles(country_code):
 
         except Exception as e:
             print(f"Failed to download {url}: {e}")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

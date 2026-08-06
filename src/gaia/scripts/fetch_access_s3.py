@@ -1,5 +1,4 @@
 import os
-import requests
 from pathlib import Path
 import geopandas as gpd
 import rioxarray
@@ -47,12 +46,10 @@ def download_access_gpkg(country_code, category, work_dir, context):
     gpkg_path = Path(work_dir) / f"{country_code}_{category}_access.gpkg"
 
     if not gpkg_path.exists():
+        from gaia.scripts.download_utils import download_file
+
         context.info(f"Downloading {category} access GPKG…")
-        resp = requests.get(url, stream=True)
-        resp.raise_for_status()
-        with open(gpkg_path, "wb") as f:
-            for chunk in resp.iter_content(1024 * 1024):
-                f.write(chunk)
+        download_file(url, str(gpkg_path))
     else:
         context.info(f"{gpkg_path} already exists, skipping download.")
 

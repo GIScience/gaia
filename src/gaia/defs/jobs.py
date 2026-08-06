@@ -6,6 +6,7 @@ local_workflow_job = dg.define_asset_job(
     name="local_workflow_job",
     description="Compute all GAIA risk assessment indicators for a country (no uploads).",
     partitions_def=country_partitions,
+    op_retry_policy=dg.RetryPolicy(max_retries=2, delay=60),
     config={
         "execution": {
             "config": {

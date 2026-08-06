@@ -10,6 +10,7 @@ import overpass
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+from shapely.geometry import mapping
 
 os.environ["OGR_GEOJSON_MAX_OBJ_SIZE"] = "0"  # no limits when reading complex geojsons
 
@@ -353,14 +354,13 @@ def fetch_ohsome(
 
     end = time or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Query one admin unit at a time, using its bounding box as the aoi.
-    # NOTE: bbox-based counts can attribute boundary-adjacent facilities to
-    # more than one unit; if the API accepts polygons in `aoi`, pass
-    # the polygon geometry instead for exact per-unit counts.
+    # Query one admin unit at a time, passing the unit's polygon geometry as
+    # the aoi so facilities are only counted inside the actual boundary.
+    # (A bounding-box aoi would over-attribute boundary-adjacent facilities
+    # to neighbouring units.)
     rows = []
     for _, row in boundary.iterrows():
-        minx, miny, maxx, maxy = row.geometry.bounds
-        aoi = [minx, miny, maxx, maxy]
+        aoi = mapping(row.geometry)
 
         row_data = {id_col: row[id_col], "ADM_PCODE": row[id_col]}
         for category, filter_str in OHSOME_FILTERS.items():

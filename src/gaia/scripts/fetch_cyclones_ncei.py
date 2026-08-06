@@ -9,7 +9,6 @@ Outputs CSV: {country_code}_{admin_level}_cyclone_exposure.csv
 import os
 from pathlib import Path
 import zipfile
-import requests
 import geopandas as gpd
 import numpy as np
 import rasterio
@@ -69,11 +68,10 @@ EXPOSURE_CLASSES = [1, 2, 3]  # cyclone categories
 def ensure_ibtracs_data(context: Context):
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     if not os.path.exists(IBTRACS_LOCAL_ZIP):
+        from gaia.scripts.download_utils import download_file
+
         context.info("Downloading IBTrACS dataset...")
-        r = requests.get(IBTRACS_URL)
-        r.raise_for_status()
-        with open(IBTRACS_LOCAL_ZIP, "wb") as f:
-            f.write(r.content)
+        download_file(IBTRACS_URL, IBTRACS_LOCAL_ZIP)
         context.info("Download complete.")
 
     extract_path = os.path.join(DOWNLOAD_DIR, "IBTrACS")
@@ -82,6 +80,13 @@ def ensure_ibtracs_data(context: Context):
             zip_ref.extractall(extract_path)
             context.info(f"Extracted IBTrACS shapefiles to: {extract_path}")
     return os.path.join(extract_path, "IBTrACS.since1980.list.v04r01.lines.shp")
+
+
+def _estimate_utm(gdf):
+    centroid = gdf.dissolve().centroid.iloc[0]
+    lon, lat = centroid.x, centroid.y
+    utm_zone = min(int((lon + 180) / 6) + 1, 60)
+    return f"EPSG:{32600 + utm_zone if lat >= 0 else 32700 + utm_zone}"
 
 
 # -----------------------------
@@ -103,8 +108,9 @@ def build_cyclone_buffers(context: Context, country_code: str, admin_level: str)
         context.info(f"No cyclone tracks near {country_code} bounding box.")
         return None
 
-    gdf_ibtracs = gdf_ibtracs.to_crs(epsg=29738)
-    country_gdf = country_gdf.to_crs(epsg=29738)
+    utm_crs = _estimate_utm(country_gdf)
+    gdf_ibtracs = gdf_ibtracs.to_crs(utm_crs)
+    country_gdf = country_gdf.to_crs(utm_crs)
 
     gdf_ibtracs["mean_r34"] = gdf_ibtracs[
         ["USA_R34_SE", "USA_R34_NE", "USA_R34_NW", "USA_R34_SW"]
@@ -152,23 +158,25 @@ def rasterize_cyclone_buffers(context: Context, buffer_geojson: str, country_cod
         crs = src_ref.crs
 
     gdf = gdf.to_crs(crs)
-    max_raster = np.zeros((height, width), dtype=np.uint8)
     gdf_sorted = gdf.sort_values("USA_SSHS")
+    shapes = []
     for _, row in gdf_sorted.iterrows():
         if row.geometry is None or np.isnan(row["USA_SSHS"]):
             continue
         level = int(row["USA_SSHS"])
         if not (1 <= level <= 5):
             continue
-        shapes = [(row.geometry, level)]
-        mask_arr = rasterize(
+        shapes.append((row.geometry, level))
+
+    max_raster = np.zeros((height, width), dtype=np.uint8)
+    if shapes:
+        max_raster = rasterize(
             shapes,
             out_shape=(height, width),
             transform=transform,
             fill=0,
             dtype=np.uint8,
         )
-        max_raster = np.maximum(max_raster, mask_arr)
 
     classified = np.zeros_like(max_raster, dtype=np.uint8)
     classified[(max_raster >= 1) & (max_raster <= 1)] = 1
@@ -195,6 +203,12 @@ def calculate_cyclone_exposure(
     temp_dir = Path(f"data/{country_code}/Temporary")
     temp_dir.mkdir(parents=True, exist_ok=True)
     base_path = Path(f"data/{country_code}")
+    out_csv = (
+        base_path / "Output" / f"{country_code}_{admin_level}_cyclone_exposure.csv"
+    )
+    if out_csv.exists():
+        context.info(f"Cyclone exposure CSV already exists, skipping: {out_csv}")
+        return str(out_csv)
 
     buffer_geojson = build_cyclone_buffers(context, country_code, admin_level)
     if not buffer_geojson:
@@ -244,18 +258,22 @@ def calculate_cyclone_exposure(
         geojsons_map[cat] = base_path / f"Temporary/{country_code}_{cat}_raw.geojson"
 
     # --- Population exposure ---
+    class_masks = {
+        cls: (cyclone_raster == cls).astype(np.float32) for cls in EXPOSURE_CLASSES
+    }
     for indicator, pop_raster_path in tif_map.items():
         with rasterio.open(pop_raster_path) as src_pop:
             pop_raster = src_pop.read(1)
-            meta = src_pop.meta.copy()
+            transform = src_pop.transform
         for cls in EXPOSURE_CLASSES:
-            mask_cls = (cyclone_raster == cls).astype(np.float32)
-            exposed_pop = pop_raster * mask_cls
-            temp_path = base_path / f"Temporary/tmp_{indicator}_cat{cls}.tif"
-            meta.update(dtype=rasterio.float32, count=1)
-            with rasterio.open(temp_path, "w", **meta) as dst:
-                dst.write(exposed_pop, 1)
-            stats = zonal_stats(gdf_admin, temp_path, stats="sum", nodata=0)
+            exposed_pop = (pop_raster * class_masks[cls]).astype(np.float32)
+            stats = zonal_stats(
+                gdf_admin,
+                exposed_pop,
+                affine=transform,
+                stats="sum",
+                nodata=0,
+            )
             df[f"kt34_{indicator}_cat{cls}"] = [round(s["sum"] or 0, 0) for s in stats]
 
     # Calculate dependency ratio and drop intermediate columns
@@ -271,52 +289,54 @@ def calculate_cyclone_exposure(
         )
 
     # --- Facility exposure ---
-    for category in FACILITY_CATEGORIES:
-        filepath = base_path / f"Temporary/{country_code}_{category}_raw.geojson"
-        if not filepath.exists():
-            continue
-        facilities = gpd.read_file(filepath)
-        if facilities.empty:
-            continue
-        facilities = facilities.to_crs(raster_crs)
-        facilities["geometry"] = facilities.geometry.centroid
-        coords = [(x, y) for x, y in zip(facilities.geometry.x, facilities.geometry.y)]
-        with rasterio.open(raster_path) as src:
+    with rasterio.open(raster_path) as src:
+        for category in FACILITY_CATEGORIES:
+            filepath = base_path / f"Temporary/{country_code}_{category}_raw.geojson"
+            if not filepath.exists():
+                continue
+            facilities = gpd.read_file(filepath)
+            if facilities.empty:
+                continue
+            facilities = facilities.to_crs(raster_crs)
+            facilities["geometry"] = facilities.geometry.centroid
+            coords = [
+                (x, y) for x, y in zip(facilities.geometry.x, facilities.geometry.y)
+            ]
             values = [v for v in src.sample(coords)]
-        facilities["cyclone_class"] = [v[0] for v in values]
+            facilities["cyclone_class"] = [v[0] for v in values]
 
-        joined = gpd.sjoin(
-            facilities,
-            gdf_admin[[f"{admin_level}_PCODE", "geometry"]],
-            how="inner",
-            predicate="within",
-        )
+            joined = gpd.sjoin(
+                facilities,
+                gdf_admin[[f"{admin_level}_PCODE", "geometry"]],
+                how="inner",
+                predicate="within",
+            )
 
-        total_facilities = joined.groupby(f"{admin_level}_PCODE").size().to_dict()
-        for cls in EXPOSURE_CLASSES:
-            mask_cls = joined["cyclone_class"] == cls
-            grouped = (
-                joined[mask_cls]
-                .groupby(f"{admin_level}_PCODE")
-                .size()
-                .reset_index(name=f"kt34_{category}_count_cat{cls}")
-            )
-            df = df.merge(grouped, on=f"{admin_level}_PCODE", how="left")
-            df[f"kt34_{category}_count_cat{cls}"] = (
-                df[f"kt34_{category}_count_cat{cls}"].fillna(0).astype(int)
-            )
-            # percent
-            df[f"kt34_{category}_perc_cat{cls}"] = df.apply(
-                lambda x: round(
-                    (
-                        x[f"kt34_{category}_count_cat{cls}"]
-                        / total_facilities.get(x[f"{admin_level}_PCODE"], 1)
-                    )
-                    * 100,
-                    0,
-                ),
-                axis=1,
-            )
+            total_facilities = joined.groupby(f"{admin_level}_PCODE").size().to_dict()
+            for cls in EXPOSURE_CLASSES:
+                mask_cls = joined["cyclone_class"] == cls
+                grouped = (
+                    joined[mask_cls]
+                    .groupby(f"{admin_level}_PCODE")
+                    .size()
+                    .reset_index(name=f"kt34_{category}_count_cat{cls}")
+                )
+                df = df.merge(grouped, on=f"{admin_level}_PCODE", how="left")
+                df[f"kt34_{category}_count_cat{cls}"] = (
+                    df[f"kt34_{category}_count_cat{cls}"].fillna(0).astype(int)
+                )
+                # percent
+                df[f"kt34_{category}_perc_cat{cls}"] = df.apply(
+                    lambda x: round(
+                        (
+                            x[f"kt34_{category}_count_cat{cls}"]
+                            / total_facilities.get(x[f"{admin_level}_PCODE"], 1)
+                        )
+                        * 100,
+                        0,
+                    ),
+                    axis=1,
+                )
 
     numeric_cols = [
         c
@@ -327,7 +347,6 @@ def calculate_cyclone_exposure(
 
     output_dir = base_path / "Output"
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_csv = output_dir / f"{country_code}_{admin_level}_cyclone_exposure.csv"
     df.to_csv(out_csv, index=False)
     context.info(f"Cyclone exposure CSV saved to: {out_csv}")
     return str(out_csv)

@@ -8,7 +8,15 @@ from minio.error import S3Error
 def upload_folder(
     client: Minio, bucket: str, in_dir: str, dest_prefix: str, file_filter=None
 ):
-    """Walk through all files in in_dir and upload to S3 under dest_prefix."""
+    """Walk through all files in in_dir and upload to S3 under dest_prefix.
+
+    Skips objects that already exist with the same size and verifies each
+    upload afterwards. Raises if any file failed to upload.
+    """
+    failures = []
+    uploaded = 0
+    skipped = 0
+
     for root, dirs, files in os.walk(in_dir):
         for filename in files:
             if filename.endswith(".DS_Store"):
@@ -22,12 +30,42 @@ def upload_folder(
             object_path = os.path.join(dest_prefix, rel_path).replace("\\", "/")
 
             try:
+                local_size = os.path.getsize(local_path)
+
+                existing = None
+                try:
+                    existing = client.stat_object(bucket, object_path)
+                except S3Error as err:
+                    if err.code != "NoSuchKey":
+                        raise
+
+                if existing is not None and existing.size == local_size:
+                    skipped += 1
+                    print(
+                        f"Skipped {local_path} (already on S3: {bucket}/{object_path})"
+                    )
+                    continue
+
                 client.fput_object(
                     bucket_name=bucket, object_name=object_path, file_path=local_path
                 )
+                remote = client.stat_object(bucket, object_path)
+                if remote.size != local_size:
+                    raise RuntimeError(
+                        f"size mismatch after upload: local {local_size} "
+                        f"!= remote {remote.size}"
+                    )
+                uploaded += 1
                 print(f"Uploaded {local_path} → {bucket}/{object_path}")
-            except S3Error as err:
+            except Exception as err:
+                failures.append(f"{object_path}: {err}")
                 print(f"Error uploading {local_path}: {err}")
+
+    if failures:
+        raise RuntimeError(
+            f"Upload completed with {len(failures)} failure(s):\n" + "\n".join(failures)
+        )
+    print(f"S3 upload done: {uploaded} uploaded, {skipped} skipped.")
 
 
 def upload_to_s3(

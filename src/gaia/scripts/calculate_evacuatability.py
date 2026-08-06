@@ -28,7 +28,6 @@ from rasterio.warp import reproject, Resampling
 from rasterstats import zonal_stats
 from skimage.graph import MCP_Geometric
 from pathlib import Path
-import tempfile
 
 # Default flood threshold (overridable per call via flood_threshold)
 FLOOD_THRESHOLD = 0.3  # default: 30cm
@@ -172,13 +171,13 @@ def calculate_travel_time_mcp(cost_arr, safe_mask, pixel_size_m):
     safe_indices = np.argwhere(safe_mask)
     if len(safe_indices) == 0:
         return np.full(cost_arr.shape, np.nan)
+    if len(safe_indices) > MAX_MCP_SOURCES:
+        rng = np.random.default_rng(42)
+        indices = rng.choice(len(safe_indices), MAX_MCP_SOURCES, replace=False)
+        safe_indices = safe_indices[indices]
     cost_scaled = cost_arr * pixel_size_m
     mcp = MCP_Geometric(cost_scaled, fully_connected=True)
     starts = [tuple(idx) for idx in safe_indices]
-    if len(starts) > MAX_MCP_SOURCES:
-        rng = np.random.default_rng(42)
-        indices = rng.choice(len(starts), MAX_MCP_SOURCES, replace=False)
-        starts = [starts[i] for i in indices]
     cumulative_cost, traceback = mcp.find_costs(starts)
     travel_time = cumulative_cost.astype(np.float32)
     travel_time[travel_time >= 1e9] = np.nan
@@ -213,54 +212,33 @@ def aggregate_by_admin(
         gdf = gdf.to_crs(crs)
     travel_time_at_risk = travel_time_arr.copy()
     travel_time_at_risk[~at_risk_mask] = np.nan
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tt_path = os.path.join(tmpdir, "travel_time.tif")
-        with rasterio.open(
-            tt_path,
-            "w",
-            driver="GTiff",
-            height=travel_time_at_risk.shape[0],
-            width=travel_time_at_risk.shape[1],
-            count=1,
-            dtype=np.float32,
-            crs=crs,
-            transform=transform,
-            nodata=np.nan,
-        ) as dst:
-            dst.write(travel_time_at_risk, 1)
-        tt_stats = zonal_stats(
-            gdf, tt_path, stats=["mean", "max", "median", "count"], nodata=np.nan
-        )
-        pop_stats_all = {}
-        for indicator, (pop_arr, pop_nodata) in pop_rasters.items():
-            if at_risk_mask.shape != pop_arr.shape:
-                mask_resized = (
-                    upsample_array(
-                        at_risk_mask.astype(np.float32), pop_arr.shape, method="nearest"
-                    )
-                    > 0.5
+    tt_stats = zonal_stats(
+        gdf,
+        travel_time_at_risk.astype(np.float32),
+        affine=transform,
+        stats=["mean", "max", "median", "count"],
+        nodata=np.nan,
+    )
+    pop_stats_all = {}
+    for indicator, (pop_arr, pop_nodata) in pop_rasters.items():
+        if at_risk_mask.shape != pop_arr.shape:
+            mask_resized = (
+                upsample_array(
+                    at_risk_mask.astype(np.float32), pop_arr.shape, method="nearest"
                 )
-            else:
-                mask_resized = at_risk_mask
-            pop_at_risk = pop_arr.copy()
-            pop_at_risk[~mask_resized] = 0
-            pop_path = os.path.join(tmpdir, f"pop_{indicator}.tif")
-            with rasterio.open(
-                pop_path,
-                "w",
-                driver="GTiff",
-                height=pop_at_risk.shape[0],
-                width=pop_at_risk.shape[1],
-                count=1,
-                dtype=np.float32,
-                crs=crs,
-                transform=transform,
-                nodata=0,
-            ) as dst:
-                dst.write(pop_at_risk, 1)
-            pop_stats_all[indicator] = zonal_stats(
-                gdf, pop_path, stats=["sum"], nodata=0
+                > 0.5
             )
+        else:
+            mask_resized = at_risk_mask
+        pop_at_risk = pop_arr.copy()
+        pop_at_risk[~mask_resized] = 0
+        pop_stats_all[indicator] = zonal_stats(
+            gdf,
+            pop_at_risk.astype(np.float32),
+            affine=transform,
+            stats=["sum"],
+            nodata=0,
+        )
     results = []
     for i, (idx, row) in enumerate(gdf.iterrows()):
         pcode = row[id_col]
@@ -462,6 +440,8 @@ def compute_evacuability_csv(
     had_data = False
 
     # --- Flood evacuability ---
+    friction_arr = None
+    friction_grid = None
     for rp in rps:
         flood_path = temp_dir / f"{country_code}_flooded_RP{rp}.tif"
         if not flood_path.exists():
@@ -475,12 +455,17 @@ def compute_evacuability_csv(
         if flood_nodata is not None:
             flood_arr[flood_arr == flood_nodata] = np.nan
 
-        friction_arr = fetch_friction_window(
-            bounds=(bounds.left, bounds.bottom, bounds.right, bounds.top),
-            target_crs=crs,
-            target_transform=transform,
-            target_shape=flood_arr.shape,
-        )
+        # All RP flood rasters share the same country grid — fetch the friction
+        # window once and reuse it (re-fetch only if the grid differs).
+        grid = (bounds, transform, crs, flood_arr.shape)
+        if friction_arr is None or grid != friction_grid:
+            friction_arr = fetch_friction_window(
+                bounds=(bounds.left, bounds.bottom, bounds.right, bounds.top),
+                target_crs=crs,
+                target_transform=transform,
+                target_shape=flood_arr.shape,
+            )
+            friction_grid = grid
 
         pixel_size_m = get_pixel_size_meters(transform, crs)
         total_pixels = flood_arr.size
@@ -531,27 +516,13 @@ def compute_evacuability_csv(
             travel_time_at_risk[~at_risk_mask] = np.nan
             gdf_tt = gdf.to_crs(crs) if gdf.crs != crs else gdf
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tt_path = os.path.join(tmpdir, "travel_time.tif")
-                with rasterio.open(
-                    tt_path,
-                    "w",
-                    driver="GTiff",
-                    height=travel_time_at_risk.shape[0],
-                    width=travel_time_at_risk.shape[1],
-                    count=1,
-                    dtype=np.float32,
-                    crs=crs,
-                    transform=transform,
-                    nodata=np.nan,
-                ) as dst:
-                    dst.write(travel_time_at_risk, 1)
-                tt_stats = zonal_stats(
-                    gdf_tt,
-                    tt_path,
-                    stats=["mean", "max", "median", "count"],
-                    nodata=np.nan,
-                )
+            tt_stats = zonal_stats(
+                gdf_tt,
+                travel_time_at_risk.astype(np.float32),
+                affine=transform,
+                stats=["mean", "max", "median", "count"],
+                nodata=np.nan,
+            )
 
             df[f"RP{rp}_evac_time_minutes_mean"] = [
                 round(s["mean"], 1) if s.get("mean") else None for s in tt_stats
@@ -646,27 +617,13 @@ def compute_evacuability_csv(
             travel_time_at_risk[~at_risk_mask] = np.nan
             gdf_tt = gdf.to_crs(raster_crs) if gdf.crs != raster_crs else gdf
 
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tt_path = os.path.join(tmpdir, "travel_time.tif")
-                with rasterio.open(
-                    tt_path,
-                    "w",
-                    driver="GTiff",
-                    height=travel_time_at_risk.shape[0],
-                    width=travel_time_at_risk.shape[1],
-                    count=1,
-                    dtype=np.float32,
-                    crs=raster_crs,
-                    transform=cyclone_transform,
-                    nodata=np.nan,
-                ) as dst:
-                    dst.write(travel_time_at_risk, 1)
-                tt_stats = zonal_stats(
-                    gdf_tt,
-                    tt_path,
-                    stats=["mean", "max", "median", "count"],
-                    nodata=np.nan,
-                )
+            tt_stats = zonal_stats(
+                gdf_tt,
+                travel_time_at_risk.astype(np.float32),
+                affine=cyclone_transform,
+                stats=["mean", "max", "median", "count"],
+                nodata=np.nan,
+            )
 
             df["kt34_evac_time_minutes_mean"] = [
                 round(s["mean"], 1) if s.get("mean") else None for s in tt_stats

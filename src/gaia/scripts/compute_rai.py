@@ -6,7 +6,6 @@ import pandas as pd
 import numpy as np
 import rioxarray
 import rasterio
-import requests
 from rasterstats import zonal_stats
 from gaia.scripts.fetch_ruralness_ghsl import (
     download_and_unzip_smod,
@@ -196,6 +195,8 @@ def country_iso2(country_code):
 
 
 def download_road_data(country_code, download_dir, context):
+    from gaia.scripts.download_utils import download_file as _download_file
+
     country_code = country_code.upper()
     iso3_lower = country_code.lower()
     iso2 = country_iso2(country_code).lower()
@@ -221,34 +222,24 @@ def download_road_data(country_code, download_dir, context):
         paths["mapillary"] = str(mapillary_path)
     else:
         context.info(f"Downloading Mapillary roads from {mapillary_url}")
-        resp = requests.get(mapillary_url, stream=True, timeout=300)
-        if resp.status_code == 200:
-            with open(mapillary_path, "wb") as f:
-                for chunk in resp.iter_content(1024 * 1024):
-                    f.write(chunk)
-            paths["mapillary"] = str(mapillary_path)
+        path = _download_file(mapillary_url, str(mapillary_path), soft=True)
+        if path is not None:
+            paths["mapillary"] = path
             context.info(f"Saved Mapillary roads to {mapillary_path}")
         else:
-            context.warning(
-                f"Mapillary data not available (HTTP {resp.status_code}): {mapillary_url}"
-            )
+            context.warning(f"Mapillary data not available: {mapillary_url}")
 
     if planet_path.exists():
         context.info(f"Planet data already cached: {planet_path}")
         paths["planet"] = str(planet_path)
     else:
         context.info(f"Downloading Planet roads from {planet_url}")
-        resp = requests.get(planet_url, stream=True, timeout=300)
-        if resp.status_code == 200:
-            with open(planet_path, "wb") as f:
-                for chunk in resp.iter_content(1024 * 1024):
-                    f.write(chunk)
-            paths["planet"] = str(planet_path)
+        path = _download_file(planet_url, str(planet_path), soft=True)
+        if path is not None:
+            paths["planet"] = path
             context.info(f"Saved Planet roads to {planet_path}")
         else:
-            context.warning(
-                f"Planet data not available (HTTP {resp.status_code}): {planet_url}"
-            )
+            context.warning(f"Planet data not available: {planet_url}")
 
     return paths
 
@@ -351,11 +342,8 @@ def compute_rai(
     buffered = merged_roads[["geometry"]].to_crs(utm_crs).buffer(2000).union_all()
     buffered_gdf = gpd.GeoDataFrame(geometry=[buffered], crs=utm_crs).to_crs(4326)
 
-    context.info("Intersecting buffered roads with admin boundaries")
-    roads_by_adm = gpd.overlay(
-        buffered_gdf, gdf_admin[[id_col, "geometry"]], how="intersection"
-    )
-    if roads_by_adm.empty:
+    context.info("Checking road-buffer intersection with admin boundaries")
+    if not buffered_gdf.geometry.intersects(gdf_admin.union_all()).any():
         context.warning("No road-admin intersection found — writing empty output")
         pd.DataFrame({id_col: gdf_admin[id_col]}).to_csv(out_csv, index=False)
         return str(out_csv)
