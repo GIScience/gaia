@@ -66,6 +66,23 @@ def _consecutive_failures(
     return count
 
 
+def _progress_summary(
+    succeeded: set[str],
+    skipped: set[str],
+    in_flight: set[str],
+    next_country: str | None = None,
+) -> str:
+    """Human-readable progress shown as the sensor cursor / skip message in the UI."""
+    parts = [f"{len(succeeded)}/{len(ALL_COUNTRIES)} countries succeeded"]
+    if in_flight:
+        parts.append(f"{len(in_flight)} running")
+    if skipped:
+        parts.append(f"{len(skipped)} skipped")
+    if next_country:
+        parts.append(f"next: {next_country}")
+    return " | ".join(parts)
+
+
 @dg.sensor(
     job=local_workflow_job,
     minimum_interval_seconds=MINIMUM_INTERVAL_SECONDS,
@@ -78,12 +95,6 @@ def _consecutive_failures(
     ),
 )
 def country_workflow_sensor(context: dg.SensorEvaluationContext):
-    in_flight = _in_flight_countries(context)
-    if len(in_flight) >= MAX_IN_FLIGHT:
-        return dg.SkipReason(
-            f"{len(in_flight)} countries already running (max {MAX_IN_FLIGHT})"
-        )
-
     statuses = _latest_run_statuses_by_country(context)
 
     succeeded = {
@@ -110,20 +121,36 @@ def country_workflow_sensor(context: dg.SensorEvaluationContext):
         if country not in succeeded and country not in skipped
     ]
 
+    in_flight = _in_flight_countries(context)
+
     if active_pending:
         next_country = active_pending[0]
+    elif skipped:
+        next_country = next(country for country in ALL_COUNTRIES if country in skipped)
+    else:
+        next_country = None
+
+    progress = _progress_summary(succeeded, skipped, in_flight, next_country)
+    context.update_cursor(progress)
+
+    if len(in_flight) >= MAX_IN_FLIGHT:
+        return dg.SkipReason(
+            f"{len(in_flight)} countries already running (max {MAX_IN_FLIGHT}). "
+            f"{progress}"
+        )
+
+    if active_pending:
         if consecutive_failures.get(next_country, 0) >= 1:
             context.log.warning(
                 f"Retrying {next_country} after "
                 f"{consecutive_failures[next_country]} consecutive failures"
             )
     elif skipped:
-        next_country = next(country for country in ALL_COUNTRIES if country in skipped)
         context.log.warning(
             f"All active countries done; revisiting skipped country {next_country}"
         )
     else:
-        return dg.SkipReason("Every country has succeeded")
+        return dg.SkipReason(f"Every country has succeeded. {progress}")
 
     attempt = len(statuses.get(next_country, [])) + 1
     return dg.SensorResult(
