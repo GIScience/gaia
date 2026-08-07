@@ -119,9 +119,15 @@ def merge_and_sum_rasters(raster_paths: List[str], out_path: str, context_log):
             out_width,
             out_height,
         )
+        context_log.info(
+            f"Summing {len(raster_paths)} rasters into {os.path.basename(out_path)} "
+            f"({out_height}x{out_width} cells, {scale}x downsampling) ..."
+        )
         data_sum = _downsample_sum(raster_paths[0], scale)
-    for p in raster_paths[1:]:
+        context_log.info(f"  processed 1/{len(raster_paths)} rasters")
+    for i, p in enumerate(raster_paths[1:], start=2):
         data_sum += _downsample_sum(p, scale)
+        context_log.info(f"  processed {i}/{len(raster_paths)} rasters")
     meta.update(
         dtype="float32",
         count=1,
@@ -134,6 +140,38 @@ def merge_and_sum_rasters(raster_paths: List[str], out_path: str, context_log):
     with rasterio.open(out_path, "w", **meta) as dst:
         dst.write(data_sum, 1)
     context_log.info(f"Wrote merged raster to {out_path}")
+
+
+def _subtract_rasters(base_path: str, minus_path: str, out_path: str, context_log):
+    """Write out_path = base - minus (float32), clamping negatives to 0.
+
+    Used to derive dep_dependents from total_pop - dep_working. Because the
+    block-sum downsample is linear and the dep age groups partition total_pop,
+    this is equivalent (up to float32 rounding) to merging dep_dependents bins.
+    """
+    with rasterio.open(base_path) as base, rasterio.open(minus_path) as minus:
+        if base.shape != minus.shape or base.bounds != minus.bounds:
+            raise ValueError("Rasters to subtract must share shape and bounds")
+        meta = base.meta.copy()
+        meta.update(dtype="float32", count=1, compress="lzw", nodata=0)
+        data = np.maximum(
+            0.0,
+            base.read(1).astype("float64") - minus.read(1).astype("float64"),
+        )
+        with rasterio.open(out_path, "w", **meta) as dst:
+            dst.write(data.astype("float32"), 1)
+    context_log.info(
+        f"Wrote merged raster to {out_path} "
+        f"(derived from {os.path.basename(base_path)} - {os.path.basename(minus_path)})"
+    )
+
+
+def _indicator_bin_paths(out_dir_raw: str, country: str, ind: dict) -> list[str]:
+    return [
+        os.path.join(out_dir_raw, f"{country}_{sex}_{age}_{YEAR}_constrained.tif")
+        for sex in ind["sexes"]
+        for age in ind["ages"]
+    ]
 
 
 def fetch_worldpop(country, context_log=None, worldpop_code=None):
@@ -189,14 +227,32 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
 
     processed = []
     for ind_name, ind in INDICATORS.items():
-        filtered_paths = [
-            os.path.join(out_dir_raw, f"{country}_{sex}_{age}_{YEAR}_constrained.tif")
-            for sex in ind["sexes"]
-            for age in ind["ages"]
-        ]
+        filtered_paths = _indicator_bin_paths(out_dir_raw, country, ind)
         merged_out = os.path.join(
             out_dir, f"{country}_pop_{ind_name}_{YEAR}_constrained.tif"
         )
+        if ind_name == "dep_dependents":
+            # dep_dependents + dep_working = total_pop, so derive dep_dependents
+            # from total_pop minus a fresh dep_working merge (linearity makes this
+            # equivalent to summing its 16 bins directly).
+            base_out = os.path.join(
+                out_dir, f"{country}_pop_total_pop_{YEAR}_constrained.tif"
+            )
+            dep_working_out = os.path.join(
+                out_dir, f"{country}_pop_dep_working_{YEAR}_constrained.tif"
+            )
+            if not os.path.exists(dep_working_out):
+                merge_and_sum_rasters(
+                    _indicator_bin_paths(
+                        out_dir_raw, country, INDICATORS["dep_working"]
+                    ),
+                    dep_working_out,
+                    context_log,
+                )
+            if not os.path.exists(merged_out):
+                _subtract_rasters(base_out, dep_working_out, merged_out, context_log)
+            processed.append(merged_out)
+            continue
         if not os.path.exists(merged_out):
             merge_and_sum_rasters(filtered_paths, merged_out, context_log)
         processed.append(merged_out)
