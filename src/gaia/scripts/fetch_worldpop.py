@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 from typing import List
 import numpy as np
 import rasterio
@@ -92,12 +93,22 @@ def _downsample_sum(path: str, scale: int) -> np.ndarray:
         return acc.astype("float32")
 
 
+def _resolution_meters(src) -> float:
+    """Ground resolution of the source raster in meters (across columns)."""
+    crs = src.crs
+    if crs and crs.is_geographic:
+        lat = (src.bounds.top + src.bounds.bottom) / 2.0
+        lat = max(-60.0, min(60.0, lat))
+        return abs(src.res[0]) * 111320.0 * math.cos(math.radians(lat))
+    return abs(src.res[0])
+
+
 def merge_and_sum_rasters(raster_paths: List[str], out_path: str, context_log):
     if not raster_paths:
         raise ValueError("No rasters passed for merging!")
     with rasterio.open(raster_paths[0]) as src0:
         meta = src0.meta.copy()
-        scale = max(1, round(TARGET_RESOLUTION / src0.res[0]))
+        scale = max(1, round(TARGET_RESOLUTION / _resolution_meters(src0)))
         out_height = (src0.height + scale - 1) // scale
         out_width = (src0.width + scale - 1) // scale
         dst_transform = from_bounds(
