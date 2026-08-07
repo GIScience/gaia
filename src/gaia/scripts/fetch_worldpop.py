@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import List
+import numpy as np
 import rasterio
 import pandas as pd
 import geopandas as gpd
@@ -8,6 +9,8 @@ import argparse
 import logging
 import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from rasterio import windows
+from rasterio.transform import from_bounds
 from rasterstats import zonal_stats
 
 # --- UPDATED CONSTANTS ---
@@ -40,6 +43,9 @@ POP_TIMEFRAME = "Global_2015_2030"
 RELEASE = "R2025A"
 YEAR = "2030"
 DOWNLOAD_WORKERS = 8
+# Downsample merged indicator rasters to this resolution (m) — ~10x less memory,
+# safe because every consumer sums per admin unit.
+TARGET_RESOLUTION = 1000  # meters
 # -------------------------
 
 
@@ -49,17 +55,71 @@ def download_url(url, dest_path):
     download_file(url, dest_path)
 
 
+def _downsample_sum(path: str, scale: int) -> np.ndarray:
+    """Sum blocks of scale×scale source pixels, treating nodata as 0.
+
+    The output grid is ceil(size/scale) cells covering the whole source extent
+    (edge blocks are partial). Reads in row chunks so memory stays bounded.
+    """
+    with rasterio.open(path) as src:
+        out_height = (src.height + scale - 1) // scale
+        out_width = (src.width + scale - 1) // scale
+        acc = np.zeros((out_height, out_width), dtype="float64")
+        block_rows = max(scale, 512)
+        block_rows -= block_rows % scale
+        for start_row in range(0, src.height, block_rows):
+            n_rows = min(block_rows, src.height - start_row)
+            arr = (
+                src.read(
+                    1,
+                    window=windows.Window(0, start_row, src.width, n_rows),
+                    masked=True,
+                )
+                .filled(0)
+                .astype("float64")
+            )
+            pad_h = (scale - arr.shape[0] % scale) % scale
+            pad_w = (scale - arr.shape[1] % scale) % scale
+            if pad_h or pad_w:
+                arr = np.pad(
+                    arr, ((0, pad_h), (0, pad_w)), mode="constant", constant_values=0
+                )
+            n_y = arr.shape[0] // scale
+            n_x = arr.shape[1] // scale
+            block_sum = arr.reshape(n_y, scale, n_x, scale).sum(axis=(1, 3))
+            y0 = start_row // scale
+            acc[y0 : y0 + n_y, :n_x] += block_sum
+        return acc.astype("float32")
+
+
 def merge_and_sum_rasters(raster_paths: List[str], out_path: str, context_log):
     if not raster_paths:
         raise ValueError("No rasters passed for merging!")
     with rasterio.open(raster_paths[0]) as src0:
         meta = src0.meta.copy()
-        data_sum = src0.read(1, masked=True).filled(0).astype("float32")
+        scale = max(1, round(TARGET_RESOLUTION / src0.res[0]))
+        out_height = (src0.height + scale - 1) // scale
+        out_width = (src0.width + scale - 1) // scale
+        dst_transform = from_bounds(
+            src0.bounds.left,
+            src0.bounds.bottom,
+            src0.bounds.right,
+            src0.bounds.top,
+            out_width,
+            out_height,
+        )
+        data_sum = _downsample_sum(raster_paths[0], scale)
     for p in raster_paths[1:]:
-        with rasterio.open(p) as src:
-            arr = src.read(1, masked=True).filled(0).astype("float32")
-            data_sum += arr
-    meta.update(dtype="float32", count=1, compress="lzw", nodata=0)
+        data_sum += _downsample_sum(p, scale)
+    meta.update(
+        dtype="float32",
+        count=1,
+        compress="lzw",
+        nodata=0,
+        transform=dst_transform,
+        height=out_height,
+        width=out_width,
+    )
     with rasterio.open(out_path, "w", **meta) as dst:
         dst.write(data_sum, 1)
     context_log.info(f"Wrote merged raster to {out_path}")
