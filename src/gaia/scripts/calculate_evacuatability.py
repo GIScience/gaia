@@ -23,6 +23,7 @@ import numpy as np
 import geopandas as gpd
 import pandas as pd
 import rasterio
+from rasterio.transform import Affine
 from rasterio.windows import from_bounds, Window
 from rasterio.warp import reproject, Resampling
 from rasterstats import zonal_stats
@@ -440,7 +441,11 @@ def compute_evacuability_csv(
     had_data = False
 
     # --- Flood evacuability ---
-    friction_arr = None
+    # Analysis runs on a downsampled grid (bounded by MAX_PIXELS_FOR_MCP), so
+    # the full-resolution ~100 m country raster is never materialized in RAM.
+    # The flood raster is read already downsampled (rasterio out_shape) and the
+    # friction window is fetched directly onto that same analysis grid.
+    friction_ds = None
     friction_grid = None
     for rp in rps:
         flood_path = temp_dir / f"{country_code}_flooded_RP{rp}.tif"
@@ -449,29 +454,18 @@ def compute_evacuability_csv(
             continue
 
         log(f"[{country_code}] Computing flood evacuability for RP{rp}...")
-        flood_arr, _, flood_nodata, bounds, transform, crs = load_local_raster(
-            flood_path
-        )
-        if flood_nodata is not None:
-            flood_arr[flood_arr == flood_nodata] = np.nan
 
-        # All RP flood rasters share the same country grid — fetch the friction
-        # window once and reuse it (re-fetch only if the grid differs).
-        grid = (bounds, transform, crs, flood_arr.shape)
-        if friction_arr is None or grid != friction_grid:
-            friction_arr = fetch_friction_window(
-                bounds=(bounds.left, bounds.bottom, bounds.right, bounds.top),
-                target_crs=crs,
-                target_transform=transform,
-                target_shape=flood_arr.shape,
-            )
-            friction_grid = grid
+        # Open metadata only; derive the analysis grid from the raster profile.
+        with rasterio.open(flood_path) as src:
+            crs = src.crs
+            transform = src.transform
+            bounds = src.bounds
+            flood_nodata = src.nodata
+            full_shape = (src.height, src.width)
 
         pixel_size_m = get_pixel_size_meters(transform, crs)
-        total_pixels = flood_arr.size
-        original_shape = flood_arr.shape
+        total_pixels = full_shape[0] * full_shape[1]
         scale_factor = 1
-
         if total_pixels > MAX_PIXELS_FOR_MCP:
             scale_by_pixels = np.sqrt(total_pixels / MAX_PIXELS_FOR_MCP)
             scale_by_resolution = (
@@ -480,14 +474,36 @@ def compute_evacuability_csv(
                 else 1
             )
             scale_factor = max(scale_by_pixels, scale_by_resolution)
-            hazard_ds = downsample_array(flood_arr, scale_factor, method="mean")
-            friction_ds = downsample_array(friction_arr, scale_factor, method="mean")
-            pixel_size_ds = pixel_size_m * scale_factor
-        else:
-            hazard_ds = flood_arr
-            friction_ds = friction_arr
-            pixel_size_ds = pixel_size_m
 
+        ds_shape = (
+            max(1, int(round(full_shape[0] / scale_factor))),
+            max(1, int(round(full_shape[1] / scale_factor))),
+        )
+        ds_transform = transform * Affine.scale(
+            full_shape[1] / ds_shape[1], full_shape[0] / ds_shape[0]
+        )
+
+        # Read the hazard already downsampled — never holds the full-res raster.
+        with rasterio.open(flood_path) as src:
+            hazard_ds = src.read(
+                1, out_shape=ds_shape, resampling=Resampling.bilinear
+            ).astype(np.float32)
+        if flood_nodata is not None and not np.isnan(flood_nodata):
+            hazard_ds[hazard_ds == flood_nodata] = np.nan
+
+        # All RP flood rasters share the same country grid — fetch the friction
+        # window once (on the analysis grid) and reuse it.
+        grid = (bounds, ds_transform, crs, ds_shape)
+        if friction_ds is None or grid != friction_grid:
+            friction_ds = fetch_friction_window(
+                bounds=(bounds.left, bounds.bottom, bounds.right, bounds.top),
+                target_crs=crs,
+                target_transform=ds_transform,
+                target_shape=ds_shape,
+            )
+            friction_grid = grid
+
+        pixel_size_ds = get_pixel_size_meters(ds_transform, crs)
         cost_arr, safe_mask, at_risk_ds = create_cost_surface(
             friction_ds, hazard_ds, threshold
         )
@@ -497,30 +513,20 @@ def compute_evacuability_csv(
             df[f"RP{rp}_evac_time_minutes_mean"] = None
             df[f"RP{rp}_evac_time_minutes_max"] = None
             df[f"RP{rp}_evac_time_minutes_median"] = None
-            df[f"RP{rp}_pixels_at_risk"] = 0
         else:
             travel_time_ds = calculate_travel_time_mcp(
                 cost_arr, safe_mask, pixel_size_ds
             )
 
-            if scale_factor > 1:
-                travel_time = upsample_array(travel_time_ds, original_shape)
-                _, _, at_risk_mask = create_cost_surface(
-                    friction_arr, flood_arr, threshold
-                )
-            else:
-                travel_time = travel_time_ds
-                at_risk_mask = at_risk_ds
-
-            travel_time_at_risk = travel_time.copy()
-            travel_time_at_risk[~at_risk_mask] = np.nan
+            travel_time_at_risk = travel_time_ds.copy()
+            travel_time_at_risk[~at_risk_ds] = np.nan
             gdf_tt = gdf.to_crs(crs) if gdf.crs != crs else gdf
 
             tt_stats = zonal_stats(
                 gdf_tt,
                 travel_time_at_risk.astype(np.float32),
-                affine=transform,
-                stats=["mean", "max", "median", "count"],
+                affine=ds_transform,
+                stats=["mean", "max", "median"],
                 nodata=np.nan,
             )
 
@@ -532,9 +538,6 @@ def compute_evacuability_csv(
             ]
             df[f"RP{rp}_evac_time_minutes_median"] = [
                 round(s["median"], 1) if s.get("median") else None for s in tt_stats
-            ]
-            df[f"RP{rp}_pixels_at_risk"] = [
-                s["count"] if s.get("count") else 0 for s in tt_stats
             ]
 
         had_data = True
@@ -598,7 +601,6 @@ def compute_evacuability_csv(
             df["kt34_evac_time_minutes_mean"] = None
             df["kt34_evac_time_minutes_max"] = None
             df["kt34_evac_time_minutes_median"] = None
-            df["kt34_pixels_at_risk"] = 0
         else:
             travel_time_ds = calculate_travel_time_mcp(
                 cost_arr, safe_mask, pixel_size_ds
@@ -621,7 +623,7 @@ def compute_evacuability_csv(
                 gdf_tt,
                 travel_time_at_risk.astype(np.float32),
                 affine=cyclone_transform,
-                stats=["mean", "max", "median", "count"],
+                stats=["mean", "max", "median"],
                 nodata=np.nan,
             )
 
@@ -634,24 +636,18 @@ def compute_evacuability_csv(
             df["kt34_evac_time_minutes_median"] = [
                 round(s["median"], 1) if s.get("median") else None for s in tt_stats
             ]
-            df["kt34_pixels_at_risk"] = [
-                s["count"] if s.get("count") else 0 for s in tt_stats
-            ]
 
         # Validate cyclone evacuability columns
         evac_cols = [
             "kt34_evac_time_minutes_mean",
             "kt34_evac_time_minutes_max",
             "kt34_evac_time_minutes_median",
-            "kt34_pixels_at_risk",
         ]
         for col in evac_cols:
             if col not in df.columns:
                 raise ValueError(f"Missing required cyclone evacuability column: {col}")
-            if df[col].isna().all() and col != "kt34_pixels_at_risk":
+            if df[col].isna().all():
                 raise ValueError(f"Cyclone evacuability column {col} has no valid data")
-        if df["kt34_pixels_at_risk"].sum() == 0:
-            raise ValueError("Cyclone evacuability: no pixels at risk found")
 
         had_data = True
         log(f"[{country_code}] Cyclone evacuability done")

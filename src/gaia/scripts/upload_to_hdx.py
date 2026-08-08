@@ -137,7 +137,6 @@ Represents the exposure of populations and facilities to cyclones, based on hist
 - **kt34_total_pop_cat1 / cat2 / cat3**, **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1–3
 - **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
 - **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time (minutes) from at-risk areas to safe zones
-- **kt34_pixels_at_risk** – Number of pixels at risk from cyclone exposure
 
 Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stewardship](https://www.ncei.noaa.gov/products/international-best-track-archive-for-climate-stewardship-ibtracs)
 
@@ -274,9 +273,7 @@ Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the
 
 - **ADM2_PCODE** – Administrative division code (ADM2)
 - **RP_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from flooded areas to safe zones (per return period)
-- **RP_pixels_at_risk** – Number of flooded pixels with computed travel time
 - **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from cyclone-affected areas to safe zones
-- **kt34_pixels_at_risk** – Number of cyclone-affected pixels with computed travel time
 
 Data Source: [HeiGIT motorized friction surface](https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/2020_motorized_friction_surface_cog.tif)
 
