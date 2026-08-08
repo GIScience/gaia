@@ -34,6 +34,11 @@ OHSOME_TIME_SERIES_INTERVAL = "P1Y"
 OHSOME_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 OHSOME_MAX_RETRIES = 4
 OHSOME_RETRY_BASE_DELAY = 2.0
+# The ohsome count endpoint rejects requests whose aoi geometry is too large
+# with HTTP 413 (very complex admin units, e.g. Chile's fjord coastlines).
+# On 413 the geometry is progressively simplified with these tolerances
+# (in degrees) until the request fits. 0.0 = original geometry, tried first.
+OHSOME_GEOM_SIMPLIFY_TOLERANCES = (0.0, 0.001, 0.005, 0.01, 0.05)
 
 OHSOME_FILTERS = {
     "education": "amenity=school",
@@ -280,33 +285,65 @@ def _extract_count(data):
     return None
 
 
-def _query_ohsome_count(filter_str, aoi, end, context_log):
-    """Query the new ohsome stats endpoint for one category in one aoi."""
+def _query_ohsome_count(filter_str, geometry, end, context_log):
+    """Query the new ohsome stats endpoint for one category in one aoi.
+
+    `geometry` is the admin unit's shapely geometry. The full geometry can
+    exceed the API's request size limit for very complex boundaries, which
+    the server answers with HTTP 413. In that case the geometry is
+    progressively simplified until the request fits, so the unit still gets
+    a count instead of failing the whole asset.
+    """
     headers = {}
     if OHSOME_API_KEY:
         headers["Authorization"] = OHSOME_API_KEY
 
-    body = {
-        "groupBy": None,
-        "timeSeries": {
-            "start": OHSOME_TIME_SERIES_START,
-            "end": end,
-            "interval": OHSOME_TIME_SERIES_INTERVAL,
-        },
-        "filter": filter_str,
-        "aoi": aoi,
-    }
-
-    r = _post_with_retries(OHSOME_COUNT_ENDPOINT, headers, body, context_log)
-    r.raise_for_status()
-
-    data = r.json()
-    value = _extract_count(data)
-    if value is None:
-        context_log.warning(
-            f"Ohsome response missing count for filter '{filter_str}': {data}"
+    last_r = None
+    for tolerance in OHSOME_GEOM_SIMPLIFY_TOLERANCES:
+        aoi = (
+            mapping(geometry)
+            if tolerance == 0
+            else mapping(geometry.simplify(tolerance, preserve_topology=True))
         )
-    return value
+        body = {
+            "groupBy": None,
+            "timeSeries": {
+                "start": OHSOME_TIME_SERIES_START,
+                "end": end,
+                "interval": OHSOME_TIME_SERIES_INTERVAL,
+            },
+            "filter": filter_str,
+            "aoi": aoi,
+        }
+
+        r = _post_with_retries(OHSOME_COUNT_ENDPOINT, headers, body, context_log)
+        if r.status_code == 413:
+            last_r = r
+            if tolerance == 0:
+                context_log.warning(
+                    f"Ohsome count for filter '{filter_str}' too large (HTTP 413); "
+                    "retrying with simplified geometry"
+                )
+            else:
+                context_log.warning(
+                    f"Ohsome count for filter '{filter_str}' still too large "
+                    f"(HTTP 413) at tolerance {tolerance}°; retrying coarser"
+                )
+            continue
+
+        r.raise_for_status()
+        data = r.json()
+        value = _extract_count(data)
+        if value is None:
+            context_log.warning(
+                f"Ohsome response missing count for filter '{filter_str}': {data}"
+            )
+        return value
+
+    raise RuntimeError(
+        f"Ohsome count request for filter '{filter_str}' is too large even "
+        f"after geometry simplification (last HTTP {last_r.status_code})"
+    )
 
 
 def fetch_ohsome(
@@ -360,11 +397,11 @@ def fetch_ohsome(
     # to neighbouring units.)
     rows = []
     for _, row in boundary.iterrows():
-        aoi = mapping(row.geometry)
+        geometry = row.geometry
 
         row_data = {id_col: row[id_col], "ADM_PCODE": row[id_col]}
         for category, filter_str in OHSOME_FILTERS.items():
-            count = _query_ohsome_count(filter_str, aoi, end, context_log)
+            count = _query_ohsome_count(filter_str, geometry, end, context_log)
             row_data[f"{category}_count"] = count if count is not None else 0
         rows.append(row_data)
 
