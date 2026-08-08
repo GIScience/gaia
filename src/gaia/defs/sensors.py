@@ -77,7 +77,8 @@ def _progress_summary(
     if in_flight:
         parts.append(f"{len(in_flight)} running")
     if skipped:
-        parts.append(f"{len(skipped)} skipped")
+        skipped_list = [country for country in ALL_COUNTRIES if country in skipped]
+        parts.append(f"{len(skipped)} skipped ({','.join(skipped_list)})")
     if next_country:
         parts.append(f"next: {next_country}")
     return " | ".join(parts)
