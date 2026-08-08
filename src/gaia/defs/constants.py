@@ -15,6 +15,14 @@ DEFAULT_CROPS_YEARS = [2023, 2024]
 DEFAULT_NDVI_YEAR = [2022]
 DEFAULT_ACLED_YEAR = 2021
 
+# Flood chunking: when a country's ADM2 raster footprint exceeds this many
+# cells, exposure_flood_asset splits the country into smaller chunks (groups of
+# ADM2 units) so each run only keeps a bounded raster in memory. Tune per
+# machine RAM — CHUNK_MAX_CELLS float32 ≈ CHUNK_MAX_CELLS * 4 bytes.
+CHUNK_MAX_CELLS = int(os.getenv("GAIA_CHUNK_MAX_CELLS", "200000000"))
+# Approximate ground resolution of the GLOFAS flood depth tiles (~100 m).
+FLOOD_RES_DEG = float(os.getenv("GAIA_FLOOD_RES_DEG", str(1 / 1200)))
+
 
 class SetupConfig(dg.Config):
     admin_levels: list[str] = DEFAULT_ADMIN_LEVELS

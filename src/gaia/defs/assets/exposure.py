@@ -5,8 +5,13 @@ import geopandas as gpd
 import dagster as dg
 
 from gaia.defs.partitions import country_partitions
-from gaia.defs.constants import FloodExposureConfig, CycloneExposureConfig
-from gaia.defs.utils import find_best_available_admin_level
+from gaia.defs.constants import (
+    FloodExposureConfig,
+    CycloneExposureConfig,
+    CHUNK_MAX_CELLS,
+    FLOOD_RES_DEG,
+)
+from gaia.defs.utils import find_best_available_admin_level, estimate_raster_cells
 from gaia.scripts.fetch_floods_jrc import process_flood_impact, ALLOWED_RPS
 from gaia.scripts.fetch_cyclones_ncei import calculate_cyclone_exposure
 
@@ -71,6 +76,21 @@ def exposure_flood_asset(
         output_dir = base_path / "Output"
         os.makedirs(output_dir, exist_ok=True)
 
+        # Recommend chunking when the flood raster footprint would exceed
+        # CHUNK_MAX_CELLS. Processing is split per RP inside process_flood_impact.
+        footprint_cells = estimate_raster_cells(gdf, FLOOD_RES_DEG)
+        if footprint_cells > CHUNK_MAX_CELLS:
+            context.log.info(
+                f"[{country_code}] Flood raster footprint ~{footprint_cells:,} cells "
+                f"exceeds CHUNK_MAX_CELLS ({CHUNK_MAX_CELLS:,}) → chunking recommended "
+                "(flood processing will be split into spatial chunks)."
+            )
+        else:
+            context.log.info(
+                f"[{country_code}] Flood raster footprint ~{footprint_cells:,} cells "
+                f"≤ CHUNK_MAX_CELLS ({CHUNK_MAX_CELLS:,}) → processing whole country."
+            )
+
         csv_path = process_flood_impact(
             context=context.log,
             country_code=country_code,
@@ -81,6 +101,9 @@ def exposure_flood_asset(
             flood_threshold=config.flood_threshold,
             api_choice=config.api.lower(),
             crop_years=config.years,
+            chunking=True,
+            chunk_max_cells=CHUNK_MAX_CELLS,
+            res_deg=FLOOD_RES_DEG,
         )
         outputs.append(csv_path)
 

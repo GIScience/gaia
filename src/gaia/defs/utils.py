@@ -1,9 +1,20 @@
+import math
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 LAYER_PREFIXES = ["cop", "exp", "vul"]
+
+
+def estimate_raster_cells(gdf, res_deg: float) -> int:
+    """
+    Approximate number of raster cells a dataset of resolution `res_deg`
+    (degrees per pixel) would need to cover the GeoDataFrame's bounding box.
+    Used to decide whether to chunk a country's processing (see CHUNK_MAX_CELLS).
+    """
+    xmin, ymin, xmax, ymax = gdf.total_bounds
+    return math.ceil((xmax - xmin) / res_deg) * math.ceil((ymax - ymin) / res_deg)
 
 
 def find_best_available_admin_level(
