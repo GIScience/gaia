@@ -283,6 +283,7 @@ def _compute_rp_exposure(
     crop_years,
     ee_initialized,
     chunk_tag="",
+    chunk_label="",
     flood_mask_path=None,
 ):
     """Compute flooded crops/population/facilities for a single RP over a
@@ -484,7 +485,7 @@ def _compute_rp_exposure(
         ]
 
         context.info(
-            f"Processed flooded population for {label} >{flood_threshold} m ({thresh_suffix})"
+            f"Processed flooded population for {label} >{flood_threshold} m ({thresh_suffix}){chunk_label}"
         )
 
     # Calculate mathematical dependency ratio for the flooded population
@@ -559,7 +560,7 @@ def _compute_rp_exposure(
             )
 
             context.info(
-                f"Processed flooded facilities for {category} >{flood_threshold} m ({thresh_suffix})"
+                f"Processed flooded facilities for {category} >{flood_threshold} m ({thresh_suffix}){chunk_label}"
             )
 
     return rp_df
@@ -758,6 +759,9 @@ def process_flood_impact(
         rp_chunk_dfs = []
         for ci, unit_gdf in enumerate(units_groups):
             chunk_tag = f"_chunk{ci}" if chunking_active else ""
+            chunk_label = (
+                f" [chunk {ci + 1}/{len(units_groups)}]" if chunking_active else ""
+            )
             rp_chunk_dfs.append(
                 _compute_rp_exposure(
                     context=context,
@@ -776,6 +780,7 @@ def process_flood_impact(
                     crop_years=crop_years,
                     ee_initialized=ee_initialized,
                     chunk_tag=chunk_tag,
+                    chunk_label=chunk_label,
                 )
             )
 
