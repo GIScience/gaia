@@ -483,6 +483,22 @@ def compute_evacuability_csv(
             full_shape[1] / ds_shape[1], full_shape[0] / ds_shape[0]
         )
 
+        ds_px = ds_shape[0] * ds_shape[1]
+        ds_px_str = f"{ds_px / 1e6:.1f}M" if ds_px >= 1e6 else f"{ds_px / 1e3:.0f}k"
+        if scale_factor > 1:
+            log(
+                f"[{country_code}] RP{rp}: raster {full_shape[0]}x{full_shape[1]} "
+                f"({total_pixels / 1e6:.1f}M px, ~{pixel_size_m:.0f}m) downsampled "
+                f"{scale_factor:.1f}x to analysis grid {ds_shape[0]}x{ds_shape[1]} "
+                f"({ds_px_str} px) to bound RAM"
+            )
+        else:
+            log(
+                f"[{country_code}] RP{rp}: raster {full_shape[0]}x{full_shape[1]} "
+                f"({total_pixels / 1e6:.1f}M px, ~{pixel_size_m:.0f}m) fits in RAM, "
+                f"analysis grid = full resolution"
+            )
+
         # Read the hazard already downsampled — never holds the full-res raster.
         with rasterio.open(flood_path) as src:
             hazard_ds = src.read(
@@ -502,18 +518,26 @@ def compute_evacuability_csv(
                 target_shape=ds_shape,
             )
             friction_grid = grid
+            log(f"[{country_code}] RP{rp}: friction window fetched onto analysis grid")
+        else:
+            log(f"[{country_code}] RP{rp}: reusing friction window (same country grid)")
 
         pixel_size_ds = get_pixel_size_meters(ds_transform, crs)
         cost_arr, safe_mask, at_risk_ds = create_cost_surface(
             friction_ds, hazard_ds, threshold
         )
+        n_at_risk = int(at_risk_ds.sum())
 
-        if at_risk_ds.sum() == 0:
+        if n_at_risk == 0:
             log(f"[{country_code}] No at-risk areas for RP{rp}, setting nulls")
             df[f"RP{rp}_evac_time_minutes_mean"] = None
             df[f"RP{rp}_evac_time_minutes_max"] = None
             df[f"RP{rp}_evac_time_minutes_median"] = None
         else:
+            log(
+                f"[{country_code}] RP{rp}: {n_at_risk} at-risk pixels on analysis grid, "
+                f"running MCP travel-time"
+            )
             travel_time_ds = calculate_travel_time_mcp(
                 cost_arr, safe_mask, pixel_size_ds
             )
