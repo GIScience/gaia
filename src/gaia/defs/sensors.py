@@ -1,3 +1,5 @@
+import os
+
 import dagster as dg
 
 from gaia.defs.jobs import local_workflow_job
@@ -19,6 +21,13 @@ _TERMINAL_SUCCESS = dg.DagsterRunStatus.SUCCESS
 _TERMINAL_FAILURE = dg.DagsterRunStatus.FAILURE
 
 _ALL_COUNTRY_KEYS = set(ALL_COUNTRIES)
+
+
+def _excluded_countries() -> set[str]:
+    """Countries the sensor never launches, read from the SKIP_COUNTRIES env var."""
+    raw = os.getenv("SKIP_COUNTRIES", "")
+    codes = {code.strip().upper() for code in raw.split(",") if code.strip()}
+    return codes & _ALL_COUNTRY_KEYS
 
 
 def _latest_run_statuses_by_country(
@@ -71,6 +80,7 @@ def _progress_summary(
     skipped: set[str],
     in_flight: set[str],
     next_country: str | None = None,
+    excluded: set[str] | None = None,
 ) -> str:
     """Human-readable progress shown as the sensor cursor / skip message in the UI."""
     parts = [f"{len(succeeded)}/{len(ALL_COUNTRIES)} countries succeeded"]
@@ -79,6 +89,9 @@ def _progress_summary(
     if skipped:
         skipped_list = [country for country in ALL_COUNTRIES if country in skipped]
         parts.append(f"{len(skipped)} skipped ({','.join(skipped_list)})")
+    if excluded:
+        excluded_list = [country for country in ALL_COUNTRIES if country in excluded]
+        parts.append(f"{len(excluded)} excluded ({','.join(excluded_list)})")
     if next_country:
         parts.append(f"next: {next_country}")
     return " | ".join(parts)
@@ -91,12 +104,14 @@ def _progress_summary(
         "Run countries one at a time until every country has succeeded. A failed "
         "country is retried; after "
         f"{SKIP_AFTER_CONSECUTIVE_FAILURES} consecutive failures it is skipped and "
-        "revisited once the remaining countries are done. Progress is derived from "
+        "revisited once the remaining countries are done. Countries listed in the "
+        "SKIP_COUNTRIES env var are never launched. Progress is derived from "
         "the run history, so the sensor picks up where it left off even after restarts."
     ),
 )
 def country_workflow_sensor(context: dg.SensorEvaluationContext):
     statuses = _latest_run_statuses_by_country(context)
+    excluded = _excluded_countries()
 
     succeeded = {
         country
@@ -119,19 +134,27 @@ def country_workflow_sensor(context: dg.SensorEvaluationContext):
     active_pending = [
         country
         for country in ALL_COUNTRIES
-        if country not in succeeded and country not in skipped
+        if country not in succeeded
+        and country not in skipped
+        and country not in excluded
+    ]
+
+    revisitable_skipped = [
+        country
+        for country in ALL_COUNTRIES
+        if country in skipped and country not in excluded
     ]
 
     in_flight = _in_flight_countries(context)
 
     if active_pending:
         next_country = active_pending[0]
-    elif skipped:
-        next_country = next(country for country in ALL_COUNTRIES if country in skipped)
+    elif revisitable_skipped:
+        next_country = revisitable_skipped[0]
     else:
         next_country = None
 
-    progress = _progress_summary(succeeded, skipped, in_flight, next_country)
+    progress = _progress_summary(succeeded, skipped, in_flight, next_country, excluded)
     context.update_cursor(progress)
 
     if len(in_flight) >= MAX_IN_FLIGHT:
@@ -146,11 +169,15 @@ def country_workflow_sensor(context: dg.SensorEvaluationContext):
                 f"Retrying {next_country} after "
                 f"{consecutive_failures[next_country]} consecutive failures"
             )
-    elif skipped:
+    elif revisitable_skipped:
         context.log.warning(
             f"All active countries done; revisiting skipped country {next_country}"
         )
     else:
+        if excluded:
+            return dg.SkipReason(
+                f"All remaining countries are excluded via SKIP_COUNTRIES. {progress}"
+            )
         return dg.SkipReason(f"Every country has succeeded. {progress}")
 
     attempt = len(statuses.get(next_country, [])) + 1
