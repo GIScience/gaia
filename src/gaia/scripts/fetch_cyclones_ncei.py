@@ -16,6 +16,7 @@ from rasterio.features import rasterize
 from rasterstats import zonal_stats
 import pandas as pd
 from shapely.geometry import mapping
+from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
 
@@ -101,7 +102,7 @@ def build_cyclone_buffers(context: Context, country_code: str, admin_level: str)
     boundary_path = f"data/{country_code}/{country_code}_{admin_level}.geojson"
     if not os.path.exists(boundary_path):
         raise FileNotFoundError(f"Boundary file not found: {boundary_path}")
-    country_gdf = gpd.read_file(boundary_path)
+    country_gdf = to_4326(gpd.read_file(boundary_path))
 
     bbox = country_gdf.total_bounds
     gdf_ibtracs = gdf_ibtracs.cx[bbox[0] : bbox[2], bbox[1] : bbox[3]]

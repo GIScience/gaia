@@ -14,6 +14,8 @@ from rasterio import windows
 from rasterio.transform import from_bounds
 from rasterstats import zonal_stats
 
+from gaia.defs.utils import to_4326
+
 # --- UPDATED CONSTANTS ---
 INDICATORS = {
     "total_pop": {
@@ -291,7 +293,7 @@ def aggregate_worldpop_to_csv(
 
     # 2) Load ADM polygons
     adm_path = f"data/{country_code}/{country_code}_{admin_level}.geojson"
-    gdf = gpd.read_file(adm_path)
+    gdf = to_4326(gpd.read_file(adm_path))
 
     expected_column = f"{admin_level}_PCODE"
     if expected_column not in gdf.columns:

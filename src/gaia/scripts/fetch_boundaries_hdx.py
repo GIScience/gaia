@@ -7,6 +7,8 @@ import tempfile
 import geopandas as gpd
 import re
 
+from gaia.defs.utils import to_4326
+
 
 def get_dataset_resources(dataset_id):
     print(f"Fetching dataset metadata for: {dataset_id}")
@@ -66,7 +68,7 @@ def convert_shapefiles_to_geojson(
                     continue
 
                 try:
-                    gdf = gpd.read_file(shp_path)
+                    gdf = to_4326(gpd.read_file(shp_path))
                     # Simplify and save...
                     gdf_simplified = gdf.copy()
                     gdf_simplified["geometry"] = gdf.geometry.simplify(

@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from shapely.geometry import mapping
 
+from gaia.defs.utils import to_4326
+
 os.environ["OGR_GEOJSON_MAX_OBJ_SIZE"] = "0"  # no limits when reading complex geojsons
 
 warnings.simplefilter("ignore", UserWarning)
@@ -88,7 +90,7 @@ def fetch_overpass(
         return expected_files[0]  # Return main summary path
 
     try:
-        boundary = gpd.read_file(boundary_file)
+        boundary = to_4326(gpd.read_file(boundary_file))
     except Exception as e:
         context_log.info(f"Error reading boundary: {e}")
         sys.exit(1)
@@ -372,7 +374,7 @@ def fetch_ohsome(
         return summary_path
 
     try:
-        boundary = gpd.read_file(boundary_file)
+        boundary = to_4326(gpd.read_file(boundary_file))
     except Exception as e:
         context_log.info(f"Error reading boundary: {e}")
         return None

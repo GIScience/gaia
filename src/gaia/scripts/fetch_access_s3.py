@@ -9,6 +9,7 @@ import argparse
 import logging
 from rasterstats import zonal_stats
 
+from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop
 
 
@@ -78,6 +79,7 @@ def compute_access_population(
     """
 
     country_code = country_code.upper()
+    gdf_admin = to_4326(gdf_admin)
     work_dir = Path(work_dir)
     output_dir = Path(output_dir)
     out_csv = output_dir / f"{country_code}_{admin_level}_access.csv"

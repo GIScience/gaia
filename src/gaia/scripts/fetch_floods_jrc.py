@@ -17,7 +17,7 @@ import rioxarray
 from shapely.geometry import mapping
 from pathlib import Path
 
-from gaia.defs.utils import estimate_raster_cells
+from gaia.defs.utils import estimate_raster_cells, to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
 
@@ -243,7 +243,7 @@ def process_country_rp(context, country_code, rp, admin_level="ADM0"):
     if not os.path.exists(boundary_file):
         raise FileNotFoundError(f"Boundary file not found: {boundary_file}")
 
-    gdf = gpd.read_file(boundary_file)
+    gdf = to_4326(gpd.read_file(boundary_file))
 
     return _merge_clipped_flood(context, country_code, rp, gdf, clipped_path)
 
@@ -598,6 +598,7 @@ def process_flood_impact(
     the same CSV as a whole-country run.
     """
     country_code = country_code.upper()
+    gdf = to_4326(gdf)
     output_dir = Path(output_dir)
     out_csv = output_dir / f"{country_code}_{admin_level}_flood_exposure.csv"
     temp_dir = Path("data") / country_code / "Temporary"

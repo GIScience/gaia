@@ -7,6 +7,7 @@ import numpy as np
 import rioxarray
 import rasterio
 from rasterstats import zonal_stats
+from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_ruralness_ghsl import (
     download_and_unzip_smod,
     reclassify_raster,
@@ -288,6 +289,7 @@ def compute_rai(
     context,
 ):
     country_code = country_code.upper()
+    gdf_admin = to_4326(gdf_admin)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     work_dir = Path(work_dir)

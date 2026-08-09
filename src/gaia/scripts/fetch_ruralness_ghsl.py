@@ -12,6 +12,7 @@ import logging
 import geopandas as gpd
 
 from rasterstats import zonal_stats
+from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 
 RECLASS_MAP = {
@@ -88,6 +89,7 @@ def compute_rural_population(
     Adds percentage columns (_rural_perc) for each indicator.
     """
     country_code = country_code.upper()
+    gdf = to_4326(gdf)
     work_dir = Path(f"{work_dir}/downloads")
     temp_dir = Path(f"{work_dir}/data/{country_code}/Temporary")
     output_dir = Path(output_dir)

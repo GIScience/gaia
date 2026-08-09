@@ -7,6 +7,13 @@ import pandas as pd
 LAYER_PREFIXES = ["cop", "exp", "vul"]
 
 
+def to_4326(gdf):
+    """Ensure the GeoDataFrame is in EPSG:4326, reprojecting if needed."""
+    if gdf.crs is None or gdf.crs.to_epsg() == 4326:
+        return gdf
+    return gdf.to_crs(epsg=4326)
+
+
 def estimate_raster_cells(gdf, res_deg: float) -> int:
     """
     Approximate number of raster cells a dataset of resolution `res_deg`
