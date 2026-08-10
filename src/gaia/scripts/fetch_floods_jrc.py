@@ -650,13 +650,9 @@ def process_flood_impact(
     api_choice = api_choice.lower()
 
     if api_choice == "ohsome-api":
-        summary_path = fetch_ohsome(
-            context, boundary_path, base_path, country_code, admin_level
-        )
+        fetch_ohsome(context, boundary_path, base_path, country_code, admin_level)
     elif api_choice == "overpass":
-        summary_path = fetch_overpass(
-            context, boundary_path, base_path, country_code, admin_level
-        )
+        fetch_overpass(context, boundary_path, base_path, country_code, admin_level)
     elif api_choice == "ohsome-parquet":
         context.info("Not implemented yet: ohsome-parquet")
         return None

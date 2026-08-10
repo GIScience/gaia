@@ -2,7 +2,6 @@ import os
 import sys
 import requests
 import zipfile
-import shutil
 import tempfile
 import geopandas as gpd
 import re

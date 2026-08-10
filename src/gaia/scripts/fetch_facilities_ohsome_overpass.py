@@ -1,4 +1,3 @@
-import argparse
 import io
 import os
 import sys
@@ -9,7 +8,6 @@ import pandas as pd
 import overpass
 import warnings
 from datetime import datetime, timezone
-from pathlib import Path
 from shapely.geometry import mapping
 
 from gaia.defs.utils import to_4326

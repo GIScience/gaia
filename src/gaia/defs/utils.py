@@ -1,6 +1,7 @@
 import math
 from pathlib import Path
 
+import geopandas as gpd
 import numpy as np
 import pandas as pd
 
@@ -40,6 +41,42 @@ def find_best_available_admin_level(
             return level_name, boundary_path
 
     return None, None
+
+
+def load_admin_boundary(base_path: Path, country_code: str, admin_level: str):
+    """
+    Resolve the requested admin level (falling back to lower levels when files
+    are missing) and load the boundary with its expected *_PCODE column.
+
+    Returns (level, boundary_path, gdf, id_col) or (None, None, None, None)
+    when no boundary file with a usable ID column is available.
+    """
+    level, boundary_path = find_best_available_admin_level(
+        base_path, country_code, admin_level
+    )
+    if not level:
+        return None, None, None, None
+
+    gdf = gpd.read_file(boundary_path)
+    id_col = f"{level.upper()}_PCODE"
+    if id_col not in gdf.columns:
+        return None, None, None, None
+
+    return level, boundary_path, gdf, id_col
+
+
+def dedupe_adm_pcode(df: pd.DataFrame) -> pd.DataFrame:
+    """Collapse ADM*_PCODE merge artifacts into a single ADM_PCODE column."""
+    adm_cols = [c for c in df.columns if c.startswith("ADM") and c.endswith("_PCODE")]
+    if "ADM_PCODE_x" in df.columns or "ADM_PCODE_y" in df.columns:
+        df["ADM_PCODE"] = df["ADM_PCODE_x"].combine_first(df["ADM_PCODE_y"])
+        df.drop(
+            columns=[c for c in ["ADM_PCODE_x", "ADM_PCODE_y"] if c in df.columns],
+            inplace=True,
+        )
+    elif "ADM_PCODE" in df.columns and adm_cols.count("ADM_PCODE") > 1:
+        df = df.loc[:, ~df.columns.duplicated()]
+    return df
 
 
 def normalize_indicators(indicators_df):

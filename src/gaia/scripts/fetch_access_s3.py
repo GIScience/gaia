@@ -1,10 +1,7 @@
-import os
 from pathlib import Path
 import geopandas as gpd
 import rioxarray
-import rasterio
 import pandas as pd
-import numpy as np
 import argparse
 import logging
 from rasterstats import zonal_stats

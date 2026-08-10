@@ -5,7 +5,6 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 import rioxarray
-import rasterio
 from rasterstats import zonal_stats
 from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_ruralness_ghsl import (
@@ -380,7 +379,6 @@ def compute_rai(
     smod = rioxarray.open_rasterio(reclass_tif, masked=True).squeeze()
     gdf_adm0_smod = gdf_adm0.to_crs(smod.rio.crs)
     smod_clipped = smod.rio.clip(gdf_adm0_smod.geometry, drop=True)
-    rural_mask = (smod_clipped == 1).astype("float32")
     context.info(f"Clipped SMOD shape: {smod_clipped.shape}")
 
     # ----------------------------------------------------------------

@@ -15,7 +15,6 @@ import rasterio
 from rasterio.features import rasterize
 from rasterstats import zonal_stats
 import pandas as pd
-from shapely.geometry import mapping
 from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
@@ -246,10 +245,6 @@ def calculate_cyclone_exposure(
     with rasterio.open(raster_path) as src:
         cyclone_raster = src.read(1).astype(np.float32)
         raster_crs = src.crs
-        cyclone_transform = src.transform
-        cyclone_bounds = src.bounds
-        cyclone_shape = cyclone_raster.shape
-        cyclone_nodata = src.nodata
 
     # Initialize dataframe with admin PCODEs
     df = pd.DataFrame({f"{admin_level}_PCODE": gdf_admin[f"{admin_level}_PCODE"]})

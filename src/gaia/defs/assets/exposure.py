@@ -1,7 +1,6 @@
 import os
 from pathlib import Path
 
-import geopandas as gpd
 import dagster as dg
 
 from gaia.defs.partitions import country_partitions
@@ -11,7 +10,7 @@ from gaia.defs.constants import (
     CHUNK_MAX_CELLS,
     FLOOD_RES_DEG,
 )
-from gaia.defs.utils import find_best_available_admin_level, estimate_raster_cells
+from gaia.defs.utils import load_admin_boundary, estimate_raster_cells
 from gaia.scripts.fetch_floods_jrc import process_flood_impact, ALLOWED_RPS
 from gaia.scripts.fetch_cyclones_ncei import calculate_cyclone_exposure
 
@@ -44,7 +43,7 @@ def exposure_flood_asset(
 
     for admin_level in admin_levels:
         orig_level = admin_level
-        level, boundary_path = find_best_available_admin_level(
+        level, boundary_path, gdf, _ = load_admin_boundary(
             base_path, country_code, admin_level
         )
 
@@ -64,14 +63,6 @@ def exposure_flood_asset(
         context.log.info(
             f"Processing {country_code} {admin_level} using {boundary_path}"
         )
-        gdf = gpd.read_file(boundary_path)
-
-        id_col = f"{admin_level.upper()}_PCODE"
-        if id_col not in gdf.columns:
-            context.log.warning(
-                f"Skipping {country_code} {admin_level}: expected ID column '{id_col}' not found"
-            )
-            continue
 
         output_dir = base_path / "Output"
         os.makedirs(output_dir, exist_ok=True)
@@ -134,7 +125,7 @@ def exposure_cyclone_asset(
 
     for admin_level in admin_levels:
         orig_level = admin_level
-        level, boundary_path = find_best_available_admin_level(
+        level, boundary_path, _, _ = load_admin_boundary(
             base_path, country_code, admin_level
         )
 
@@ -154,14 +145,6 @@ def exposure_cyclone_asset(
         context.log.info(
             f"Processing {country_code} {admin_level} using {boundary_path}"
         )
-        gdf = gpd.read_file(boundary_path)
-
-        id_col = f"{admin_level.upper()}_PCODE"
-        if id_col not in gdf.columns:
-            msg = f"Expected ID column '{id_col}' not found for {country_code} {admin_level}"
-            context.log.warning(msg)
-            failures.append(msg)
-            continue
 
         csv_path = calculate_cyclone_exposure(
             context=context.log,
