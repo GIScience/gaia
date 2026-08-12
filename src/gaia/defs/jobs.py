@@ -23,6 +23,7 @@ local_workflow_job = dg.define_asset_job(
         "facilities_asset",
         "exposure_flood_asset",
         "exposure_cyclone_asset",
+        "exposure_drought_asset",
         "evacuability_asset",
         "rural_asset",
         "RAI_asset",

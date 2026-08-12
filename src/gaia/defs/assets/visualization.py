@@ -31,6 +31,7 @@ def prep_visualization_asset(context) -> list[str]:
         "vulnerability": "vul_",
         "flood_exposure": "exp_flo_",
         "cyclone_exposure": "exp_cyc_",
+        "drought_exposure": "exp_dro_",
     }
 
     REMOTE_FILES = {
@@ -38,9 +39,10 @@ def prep_visualization_asset(context) -> list[str]:
         "vulnerability": "{country}_{adm}_vulnerability.csv",
         "flood_exposure": "{country}_{adm}_flood_exposure.csv",
         "cyclone_exposure": "{country}_{adm}_cyclone_exposure.csv",
+        "drought_exposure": "{country}_{adm}_drought_exposure.csv",
     }
 
-    OPTIONAL_SOURCES = {"flood_exposure", "cyclone_exposure"}
+    OPTIONAL_SOURCES = {"flood_exposure", "cyclone_exposure", "drought_exposure"}
 
     BASE_URL = "https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/{country}/{file}"
 
@@ -312,6 +314,7 @@ def risk_score_asset(context, prep_visualization_asset: List[str]) -> list[str]:
         vulnerability_cols = [c for c in df.columns if c.startswith("vul_")]
         flood_cols = [c for c in df.columns if c.startswith("exp_flo_")]
         cyclone_cols = [c for c in df.columns if c.startswith("exp_cyc_")]
+        drought_cols = [c for c in df.columns if c.startswith("exp_dro_")]
 
         # ------------------------------------------------
         # Build indicator dataframe (Raw features)
@@ -334,6 +337,12 @@ def risk_score_asset(context, prep_visualization_asset: List[str]) -> list[str]:
             raw_exposure_cols.extend(cyclone_cols)
             cyclone.columns = [c.replace("exp_cyc_", "exp_") for c in cyclone.columns]
             exposures["cyclone"] = cyclone
+
+        if drought_cols:
+            drought = df[drought_cols].copy()
+            raw_exposure_cols.extend(drought_cols)
+            drought.columns = [c.replace("exp_dro_", "exp_") for c in drought.columns]
+            exposures["drought"] = drought
 
         # This contains your columns BEFORE normalization
         indicators = pd.concat(
@@ -377,7 +386,9 @@ def risk_score_asset(context, prep_visualization_asset: List[str]) -> list[str]:
         # ------------------------------------------------
         for exp_type, exp_df in exposures.items():
             exp_cols = [
-                c.replace("exp_flo_", "exp_").replace("exp_cyc_", "exp_")
+                c.replace("exp_flo_", "exp_")
+                .replace("exp_cyc_", "exp_")
+                .replace("exp_dro_", "exp_")
                 for c in exp_df.columns
             ]
             exp_vals = full[exp_cols]

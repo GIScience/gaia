@@ -49,3 +49,7 @@ class FloodExposureConfig(SetupConfig, FacilitiesConfig, CropsConfig):
 
 class CycloneExposureConfig(SetupConfig, FacilitiesConfig):
     pass
+
+
+class DroughtExposureConfig(FacilitiesConfig):
+    admin_levels: list[str] = DEFAULT_ADMIN_LEVELS

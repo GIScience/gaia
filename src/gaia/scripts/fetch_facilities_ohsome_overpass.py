@@ -25,7 +25,7 @@ OVERPASS_FILTERS = {
     ],
 }
 
-OHSOME_BASE_URL = "https://api.heigit.org/ohsome-api-staging/v2"
+OHSOME_BASE_URL = "https://api.heigit.org/ohsome-api/v2-rc"
 OHSOME_COUNT_ENDPOINT = f"{OHSOME_BASE_URL}/stats/features/count.json"
 OHSOME_EXTRACTION_ENDPOINT = f"{OHSOME_BASE_URL}/extraction/features.parquet"
 OHSOME_API_KEY = os.getenv("OHSOME_API_KEY", "")

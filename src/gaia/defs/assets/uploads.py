@@ -11,10 +11,12 @@ from gaia.defs.resources import S3Resource, HdxResource
     deps=[
         "demographics_asset",
         "facilities_asset",
-        "coping_asset",
         "exposure_flood_asset",
         "exposure_cyclone_asset",
         "evacuability_asset",
+        "rural_asset",
+        "access_asset",
+        "coping_asset",
         "vulnerability_asset",
     ],
     partitions_def=multi_partitions,
@@ -57,33 +59,38 @@ def upload_s3_asset(context, s3: S3Resource) -> None:
 def upload_hdx_asset(context, hdx: HdxResource) -> str | None:
     country_code = context.partition_key.upper()
 
-    asset_filenames = {
-        "demographics": f"{country_code}_ADM2_demographics.csv",
-        "facilities": f"{country_code}_ADM2_facilities.csv",
-        "flood_exposure": f"{country_code}_ADM2_flood_exposure.csv",
-        "cyclone_exposure": f"{country_code}_ADM2_cyclone_exposure.csv",
-        "rural_population": f"{country_code}_ADM2_rural_population.csv",
-        "access": f"{country_code}_ADM2_access.csv",
-        "coping": f"{country_code}_ADM2_coping.csv",
-        "vulnerability": f"{country_code}_ADM2_vulnerability.csv",
-    }
+    indicator_labels = [
+        "demographics",
+        "facilities",
+        "flood_exposure",
+        "cyclone_exposure",
+        #"drought_exposure",
+        "rural_population",
+        "rai",
+        "access",
+        "coping",
+        "vulnerability",
+        "evacuability",
+    ]
+
+    ADM_LEVELS = ["ADM2", "ADM1"]
 
     file_map = {}
     base_output_dir = os.path.join("data", country_code, "Output")
 
     context.log.info(f"Scanning {base_output_dir} for indicator files...")
 
-    for label, filename in asset_filenames.items():
-        # Construct the manual path
-        local_path = os.path.join(base_output_dir, filename)
-
-        # Check if the file actually exists on the disk
-        if os.path.exists(local_path):
-            file_map[label] = local_path
-            context.log.info(f"Found file for {label}: {filename}")
+    for label in indicator_labels:
+        for adm in ADM_LEVELS:
+            filename = f"{country_code}_{adm}_{label}.csv"
+            local_path = os.path.join(base_output_dir, filename)
+            if os.path.exists(local_path):
+                file_map[label] = local_path
+                context.log.info(f"Found file for {label}: {filename}")
+                break
         else:
             context.log.warning(
-                f"File not found for {label}: {filename}. Skipping from upload."
+                f"File not found for {label}: tried ADM2 and ADM1. Skipping from upload."
             )
 
     url = hdx.smart_upload(
@@ -116,8 +123,12 @@ def check_hdx_downloads_asset(context) -> bool:
         "demographics",
         "facilities",
         "flood_exposure",
+        "cyclone_exposure",
+        #"drought_exposure",
         "rural_population",
+        "rai",
         "vulnerability",
+        "evacuability",
     ]
 
     ADM_LEVELS = ["ADM2", "ADM1"]

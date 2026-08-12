@@ -13,6 +13,7 @@ from gaia.defs.partitions import country_partitions
         "facilities_asset",
         "exposure_flood_asset",
         "exposure_cyclone_asset",
+        "exposure_drought_asset",
         "rural_asset",
         "access_asset",
         "coping_asset",

@@ -21,6 +21,7 @@ category_partitions = dg.StaticPartitionsDefinition(
         "vulnerability",
         "exposure",
         "rai",
+        "evacuability",
     ]
 )
 

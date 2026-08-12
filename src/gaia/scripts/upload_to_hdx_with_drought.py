@@ -169,9 +169,10 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 - **Rural Population (`{country_code}_ADM2_rural_population`)**  
 - **Rural Accessibility Index (RAI) (`{country_code}_ADM2_rai`)**  
 - **Vulnerability (`{country_code}_ADM2_vulnerability`)**  
-- **Evacuability (`{country_code}_ADM2_evacuability`)**
 - **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**  
+- **Drought Exposure (`{country_code}_ADM2_drought_exposure`)**  
 {("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
+- **Evacuability (`{country_code}_ADM2_evacuability`)**
 
 <p>&nbsp;</p>
 <p>&nbsp;</p>
@@ -245,24 +246,12 @@ Percentage of rural population living within 2 km of a paved road. Results are p
 - **rural_access_dependency_ratio** – Dependency ratio within accessible rural areas
 - **RAI_total_pop**, **RAI_female_pop**, **RAI_children_u5**, **RAI_female_u5**, **RAI_elderly**, **RAI_pop_u15**, **RAI_female_u15**, **RAI_wra_pop** – Rural Accessibility Index (%) per demographic group
 
-Data Source: [Mapillary](https://data.humdata.org/dataset/{country_name.lower()}-road-surface-data) / [Planet](https://data.humdata.org/dataset/{country_name.lower()}-planet-road-surface-data) road surface classification
+Data Source: [Mapillary](https://www.mapillary.com/) / [Planet](https://planet.com/) road surface classification
 
 ---
 
 #### **Vulnerability (`{country_code}_ADM2_vulnerability`)**
 Combines **Demographics** and **Rural Population** indicators.
-
----
-#### **Evacuability (`{country_code}_ADM2_evacuability`)**
-Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the nearest safe zone, computed using least-cost path analysis on a motorized friction surface.
-
-- **ADM2_PCODE** – Administrative division code (ADM2)
-- **RP_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from flooded areas to safe zones (per return period)
-- **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from cyclone-affected areas to safe zones
-
-
-<p>&nbsp;</p>
-<p>&nbsp;</p>
 
 ---
 
@@ -275,11 +264,37 @@ Shows population and facility exposure to flooding at 30 cm depth for multiple r
 
 Data Source: [The Joint Research Centre (JRC)](https://data.jrc.ec.europa.eu/collection/id-0054)
 
+
+---
+
+#### **Drought Exposure (`{country_code}_ADM2_drought_exposure`)**
+Represents the exposure of populations and facilities to drought, based on the JRC Global Drought Observatory SPEI-6 index for the 1991–2020 period. A month counts as a drought event when it belongs to a run of at least 3 consecutive months with SPEI-6 below −1.5. Each admin unit is assigned a drought class reflecting the share of event months over the 360-month window: class 1 (0–5%), class 2 (>5–10%), class 3 (>10–15%), class 4 (>15%).
+
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **spei6_total_pop_class1 / class2 / class3 / class4**, **spei6_female_pop_class1 / class2 / class3 / class4**, **spei6_children_u5_class1 / class2 / class3 / class4**, **spei6_female_u5_class1 / class2 / class3 / class4**, **spei6_elderly_class1 / class2 / class3 / class4**, **spei6_pop_u15_class1 / class2 / class3 / class4**, **spei6_female_u15_class1 / class2 / class3 / class4**, **spei6_wra_pop_class1 / class2 / class3 / class4** – Population exposed to each drought class
+- **spei6_education_count / perc_class1 / class2 / class3 / class4**, **spei6_hospitals_count / perc_class1 / class2 / class3 / class4**, **spei6_primary_healthcare_count / perc_class1 / class2 / class3 / class4** – Facilities exposed to each drought class (count and percentage)
+- **spei6_dependency_ratio_class1 / class2 / class3 / class4** – Dependency ratio of the population exposed to each drought class
+
+Data Source: [JRC Global Drought Observatory – SPEI](https://drought.emergency.copernicus.eu/)
+
+
 ---
 
 {cyclone_section}
 
+#### **Evacuability (`{country_code}_ADM2_evacuability`)**
+Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the nearest safe zone, computed using least-cost path analysis on a motorized friction surface.
 
+- **ADM2_PCODE** – Administrative division code (ADM2)
+- **RP_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from flooded areas to safe zones (per return period)
+- **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from cyclone-affected areas to safe zones
+
+Data Source: [HeiGIT motorized friction surface](https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/2020_motorized_friction_surface_cog.tif)
+
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+---
 
 ### **QGIS Plugin Risk Assessment Inputs**
 
