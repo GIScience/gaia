@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import argparse
 import sys
@@ -39,6 +40,27 @@ def generate_links(country_code: str, local_folder: str):
 def cyclone_files(links):
     """Return True if any filename contains 'cyclone'."""
     return any("cyclone" in fname.lower() for fname, _ in links)
+
+
+def infer_admin_level(links, existing_resources=None, default="ADM2"):
+    """Infer the admin level this country's files were actually processed at
+    (e.g. 'ADM1' when ADM2 boundaries weren't available, see
+    load_admin_boundary), from resource filenames like '{country}_ADM1_x.csv'.
+    """
+    names = [fname for fname, _ in links]
+    if existing_resources:
+        names += [res.get("name", "") for res in existing_resources if res.get("name")]
+
+    counts = {}
+    for name in names:
+        match = re.search(r"_(ADM\d)_", name)
+        if match:
+            level = match.group(1)
+            counts[level] = counts.get(level, 0) + 1
+
+    if not counts:
+        return default
+    return max(counts, key=counts.get)
 
 
 def get_hdx_country(country_code: str) -> str:
@@ -113,11 +135,13 @@ def create_country_dataset(
     dataset = Dataset.read_from_hdx(dataset_hdx_name)
 
     existing_cyclone = False
+    existing_resources = []
     if dataset:
         context.log.info(
             f"Dataset '{dataset_hdx_name}' already exists. Updating metadata."
         )
-        for res in dataset.get_resources():
+        existing_resources = dataset.get_resources()
+        for res in existing_resources:
             if res.get("name") and "cyclone" in res["name"].lower():
                 existing_cyclone = True
     else:
@@ -127,13 +151,19 @@ def create_country_dataset(
     # 3. Check for Cyclone exposure to toggle sections
     include_cyclone = cyclone_files(links) or existing_cyclone
 
+    # Admin level this country was actually processed at (falls back to
+    # ADM1 when ADM2 boundaries aren't available), so the notes/resource
+    # names below match the real files instead of assuming ADM2.
+    admin_level = infer_admin_level(links, existing_resources)
+    admin_level_num = admin_level.replace("ADM", "")
+
     # --- Start of your original Dataset Notes ---
     cyclone_section = (
         f"""
-#### **Cyclone Exposure (`{country_code}_ADM2_cyclone_exposure`)**
+#### **Cyclone Exposure (`{country_code}_{admin_level}_cyclone_exposure`)**
 Represents the exposure of populations and facilities to cyclones, based on historical cyclone tracks and intensity categories (1–3). Vulnerable populations and facilities are quantified per admin unit.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **kt34_total_pop_cat1 / cat2 / cat3**, **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1–3
 - **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
 - **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time (minutes) from at-risk areas to safe zones
@@ -150,7 +180,7 @@ Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stew
     )
 
     dataset_notes = f"""
-This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level 2** and 
+This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level {admin_level_num}** and
 can in particular be used to perform a structured risk assessment for **flood** and **drought** hazards{(" and **cyclone** hazards." if include_cyclone else ".")}
 It includes demographic, environmental, infrastructure, accessibility, and hazard-related data to support disaster risk and resilience analysis.
 
@@ -162,16 +192,16 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 
 ### **Data Overview**
 
-- **Access to Services (`{country_code}_ADM2_access`)**  
-- **Facilities (`{country_code}_ADM2_facilities`)**  
-- **Coping Capacity (`{country_code}_ADM2_coping`)**  
-- **Demographics (`{country_code}_ADM2_demographics`)**  
-- **Rural Population (`{country_code}_ADM2_rural_population`)**  
-- **Rural Accessibility Index (RAI) (`{country_code}_ADM2_rai`)**  
-- **Vulnerability (`{country_code}_ADM2_vulnerability`)**  
-- **Evacuability (`{country_code}_ADM2_evacuability`)**
-- **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**  
-{("- **Cyclone Exposure (`" + country_code + "_ADM2_cyclone_exposure`)**") if include_cyclone else ""}
+- **Access to Services (`{country_code}_{admin_level}_access`)**  
+- **Facilities (`{country_code}_{admin_level}_facilities`)**  
+- **Coping Capacity (`{country_code}_{admin_level}_coping`)**  
+- **Demographics (`{country_code}_{admin_level}_demographics`)**  
+- **Rural Population (`{country_code}_{admin_level}_rural_population`)**  
+- **Rural Accessibility Index (RAI) (`{country_code}_{admin_level}_rai`)**  
+- **Vulnerability (`{country_code}_{admin_level}_vulnerability`)**  
+- **Evacuability (`{country_code}_{admin_level}_evacuability`)**
+- **Flood Exposure (`{country_code}_{admin_level}_flood_exposure`)**  
+{("- **Cyclone Exposure (`" + country_code + "_" + admin_level + "_cyclone_exposure`)**") if include_cyclone else ""}
 
 <p>&nbsp;</p>
 <p>&nbsp;</p>
@@ -180,10 +210,10 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 
 ### **Indicator Descriptions**
 
-#### **Access to Services (`{country_code}_ADM2_access`)**
+#### **Access to Services (`{country_code}_{admin_level}_access`)**
 Represents the share of the population with access to key facilities within defined distances or travel times.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **access_pop_education_5km / 10km / 20km** – Population within 5, 10, and 20 km of educational facilities
 - **access_pop_hospitals_30min / 1h / 2h** – Population within 30 minutes, 1 hour, and 2 hours of a hospital
 - **access_pop_primary_healthcare_30min / 1h / 2h** – Population within 30 minutes, 1 hour, and 2 hours of a primary health care facility
@@ -192,10 +222,10 @@ Data Source: [openrouteservice (ORS)](https://openrouteservice.org/)
 
 ---
 
-#### **Facilities (`{country_code}_ADM2_facilities`)**
+#### **Facilities (`{country_code}_{admin_level}_facilities`)**
 Counts of essential service facilities within each district.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **education_count** – Number of educational facilities
 - **hospitals_count** – Number of hospitals
 - **primary_healthcare_count** – Number of primary health care facilities
@@ -204,15 +234,15 @@ Data Source: [OpenStreetMap (OSM)](https://www.openstreetmap.org)
 
 ---
 
-#### **Coping Capacity (`{country_code}_ADM2_coping`)**
+#### **Coping Capacity (`{country_code}_{admin_level}_coping`)**
 Combines **Access to Services**, **Facilities**, **Evacuability**, and **Rural Accessibility Index (RAI)** data to represent a district’s coping capacity.
 
 ---
 
-#### **Demographics (`{country_code}_ADM2_demographics`)**
+#### **Demographics (`{country_code}_{admin_level}_demographics`)**
 Shows the population composition by age and gender.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **total_pop** – Total population
 - **female_pop** – Total female population
 - **children_u5** – Population under 5 years old
@@ -225,11 +255,11 @@ Data Source: [Worldpop](https://www.worldpop.org/)
 
 ---
 
-#### **Rural Population (`{country_code}_ADM2_rural_population`)**
+#### **Rural Population (`{country_code}_{admin_level}_rural_population`)**
 Same demographic breakdown as above, but limited to rural populations. Rural areas are those outside urban extents,
 typically characterized by lower population density, agricultural or natural land use, and limited infrastructure compared to urban centers.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **total_pop_rural**, **female_pop_rural**, **children_u5_rural**, **female_u5_rural**, **elderly_rural**, **pop_u15_rural**, **female_u15_rural** – Rural demographic counts
 - **rural_pop_perc** – Percentage of total population living in rural areas
 
@@ -237,10 +267,10 @@ Data Source: [Global Human Settlement Layer (GHSL)](https://human-settlement.eme
 
 ---
 
-#### **Rural Accessibility Index (RAI) (`{country_code}_ADM2_rai`)**
+#### **Rural Accessibility Index (RAI) (`{country_code}_{admin_level}_rai`)**
 Percentage of rural population living within 2 km of a paved road. Results are provided for multiple demographic groups and as a dependency ratio for the accessible rural population.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **rural_access_total_pop**, **rural_access_female_pop**, **rural_access_children_u5**, **rural_access_female_u5**, **rural_access_elderly**, **rural_access_pop_u15**, **rural_access_female_u15**, **rural_access_wra_pop**, **rural_access_dependents**, **rural_access_working** – Population in rural areas within 2 km of a paved road
 - **rural_access_dependency_ratio** – Dependency ratio within accessible rural areas
 - **RAI_total_pop**, **RAI_female_pop**, **RAI_children_u5**, **RAI_female_u5**, **RAI_elderly**, **RAI_pop_u15**, **RAI_female_u15**, **RAI_wra_pop** – Rural Accessibility Index (%) per demographic group
@@ -249,14 +279,14 @@ Data Source: [Mapillary](https://data.humdata.org/dataset/{country_name.lower()}
 
 ---
 
-#### **Vulnerability (`{country_code}_ADM2_vulnerability`)**
+#### **Vulnerability (`{country_code}_{admin_level}_vulnerability`)**
 Combines **Demographics** and **Rural Population** indicators.
 
 ---
-#### **Evacuability (`{country_code}_ADM2_evacuability`)**
+#### **Evacuability (`{country_code}_{admin_level}_evacuability`)**
 Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the nearest safe zone, computed using least-cost path analysis on a motorized friction surface.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **RP_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from flooded areas to safe zones (per return period)
 - **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from cyclone-affected areas to safe zones
 
@@ -266,10 +296,10 @@ Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the
 
 ---
 
-#### **Flood Exposure (`{country_code}_ADM2_flood_exposure`)**
+#### **Flood Exposure (`{country_code}_{admin_level}_flood_exposure`)**
 Shows population and facility exposure to flooding at 30 cm depth for multiple return periods.
 
-- **ADM2_PCODE** – Administrative division code (ADM2)
+- **{admin_level}_PCODE** – Administrative division code ({admin_level})
 - **total_pop_30cm**, **female_pop_30cm**, **children_u5_30cm**, **female_u5_30cm**, **elderly_30cm**, **pop_u15_30cm**, **female_u15_30cm** – Exposed population by group
 - **education_30cm_pct / count**, **hospitals_30cm_pct / count**, **primary_healthcare_30cm_pct / count** – Facility exposure (percentage and count)
 
@@ -313,7 +343,7 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     dataset["subnational"] = "1"
     dataset["notes"] = dataset_notes
     dataset.set_custom_viz(
-        f"https://giscience.github.io/humanitarian_pages/gaia-dashboard/#/?country={country_code}&disaster=risk_flood"
+        f"https://giscience.github.io/Disaster-Risk-Composer/#/?country={country_code}&disaster=risk_flood"
     )
 
     # 5. Handle Tags
@@ -354,6 +384,7 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     # 7. Smart Resource Management
     if links:
         context.log.info(f"Uploading/Updating {len(links)} resources to HDX.")
+        new_names = {fname for fname, _ in links}
         for fname, url in links:
             resource = {
                 "name": fname,
@@ -363,6 +394,16 @@ We are happy to hear about your use-cases — contact us at [communications@heig
             }
             # add_update_resource will overwrite an existing resource with the same name
             dataset.add_update_resource(resource)
+
+        # Remove resources from the existing page that this upload no longer
+        # provides (e.g. renamed/dropped files), so the page keeps only the
+        # current set of files instead of accumulating stale ones.
+        stale_resources = [
+            res for res in existing_resources if res.get("name") not in new_names
+        ]
+        for res in stale_resources:
+            context.log.info(f"Removing stale resource: {res.get('name')}")
+            dataset.delete_resource(res)
     else:
         context.log.warning(
             "No new resource files provided by assets. Metadata updated, existing files preserved."
