@@ -1,8 +1,17 @@
 import os
 import sys
+import hashlib
 import argparse
 from minio import Minio
 from minio.error import S3Error
+
+
+def _local_md5(path: str) -> str:
+    md5 = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
 
 
 def upload_folder(
@@ -10,7 +19,7 @@ def upload_folder(
 ):
     """Walk through all files in in_dir and upload to S3 under dest_prefix.
 
-    Skips objects that already exist with the same size and verifies each
+    Skips objects that already exist with the same content and verifies each
     upload afterwards. Raises if any file failed to upload.
     """
     failures = []
@@ -40,11 +49,21 @@ def upload_folder(
                         raise
 
                 if existing is not None and existing.size == local_size:
-                    skipped += 1
-                    print(
-                        f"Skipped {local_path} (already on S3: {bucket}/{object_path})"
-                    )
-                    continue
+                    etag = (existing.etag or "").strip('"')
+                    # A multipart-uploaded object's ETag isn't a plain MD5
+                    # (it's a hash-of-part-hashes suffixed with "-<parts>"),
+                    # so it can't be compared to the local file's MD5. Same
+                    # size is the best signal available for those; small
+                    # files (the common case here) get a real content check.
+                    same_content = "-" in etag or etag.lower() == _local_md5(
+                        local_path
+                    ).lower()
+                    if same_content:
+                        skipped += 1
+                        print(
+                            f"Skipped {local_path} (already on S3: {bucket}/{object_path})"
+                        )
+                        continue
 
                 client.fput_object(
                     bucket_name=bucket, object_name=object_path, file_path=local_path
