@@ -1,11 +1,14 @@
 import os
 import subprocess
 import tempfile
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import List
 
 import geopandas as gpd
 import pandas as pd
+import requests
 import dagster as dg
 
 from gaia.defs.partitions import country_partitions
@@ -15,6 +18,24 @@ from gaia.defs.utils import (
     guess_missing_indicators,
     calculate_geometric_mean,
 )
+
+
+def _remote_last_modified(url):
+    """HEAD a remote file and return its Last-Modified time, or None if it
+    doesn't exist / the header is missing."""
+    try:
+        r = requests.head(url, timeout=15, allow_redirects=True)
+    except requests.RequestException:
+        return None
+    if r.status_code != 200:
+        return None
+    last_modified = r.headers.get("Last-Modified")
+    if not last_modified:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        return parsedate_to_datetime(last_modified)
+    except (TypeError, ValueError):
+        return datetime.min.replace(tzinfo=timezone.utc)
 
 
 @dg.asset(
@@ -31,7 +52,7 @@ def prep_visualization_asset(context) -> list[str]:
         "vulnerability": "vul_",
         "flood_exposure": "exp_flo_",
         "cyclone_exposure": "exp_cyc_",
-        "drought_exposure": "exp_dro_",
+        #"drought_exposure": "exp_dro_",
     }
 
     REMOTE_FILES = {
@@ -39,10 +60,13 @@ def prep_visualization_asset(context) -> list[str]:
         "vulnerability": "{country}_{adm}_vulnerability.csv",
         "flood_exposure": "{country}_{adm}_flood_exposure.csv",
         "cyclone_exposure": "{country}_{adm}_cyclone_exposure.csv",
-        "drought_exposure": "{country}_{adm}_drought_exposure.csv",
+        #"drought_exposure": "{country}_{adm}_drought_exposure.csv",
     }
 
-    OPTIONAL_SOURCES = {"flood_exposure", "cyclone_exposure", "drought_exposure"}
+    OPTIONAL_SOURCES = {"flood_exposure",
+                        "cyclone_exposure",
+                        #"drought_exposure"
+                    }
 
     BASE_URL = "https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/{country}/{file}"
 
@@ -50,12 +74,14 @@ def prep_visualization_asset(context) -> list[str]:
     source_map: dict[str, dict[str, pd.DataFrame]] = {}
 
     # ------------------------------------------------------------------
-    # Step 1 – Load remote CSVs with ADM fallback
+    # Step 1 – Load remote CSVs, preferring whichever admin level was
+    # uploaded most recently when both ADM2 and ADM1 exist for a source.
     # ------------------------------------------------------------------
     for source_name, filename_template in REMOTE_FILES.items():
         df = None
         adm = None
 
+        candidates = []  # (adm, url, last_modified)
         for candidate_adm in ["ADM2", "ADM1"]:
             filename = filename_template.format(
                 country=country_code,
@@ -65,17 +91,36 @@ def prep_visualization_asset(context) -> list[str]:
                 country=country_code.lower(),  # folder
                 file=filename,  # filename stays uppercase
             )
+            last_modified = _remote_last_modified(url)
+            if last_modified is not None:
+                candidates.append((candidate_adm, url, last_modified))
+            else:
+                context.log.info(
+                    f"[{country_code}] {source_name} ({candidate_adm}) not found: {url}"
+                )
+
+        if len(candidates) > 1:
+            # Both admin levels exist — ties keep ADM2 (sort is stable and
+            # ADM2 is tried first above), otherwise the most recent wins.
+            candidates.sort(key=lambda c: c[2], reverse=True)
+            other_adm = candidates[1][0]
+            context.log.info(
+                f"[{country_code}] Both {other_adm} and {candidates[0][0]} exist for "
+                f"{source_name}; using {candidates[0][0]} (last modified "
+                f"{candidates[0][2]} vs {candidates[1][2]})"
+            )
+
+        if candidates:
+            chosen_adm, chosen_url, _ = candidates[0]
             try:
                 context.log.info(
-                    f"[{country_code}] Trying {source_name} ({candidate_adm}): {url}"
+                    f"[{country_code}] Loading {source_name} ({chosen_adm}): {chosen_url}"
                 )
-                df = pd.read_csv(url)
-                adm = candidate_adm
-                break
-
+                df = pd.read_csv(chosen_url)
+                adm = chosen_adm
             except Exception as e:
                 context.log.warning(
-                    f"[{country_code}] Could not load {source_name} for {candidate_adm}: {e}"
+                    f"[{country_code}] Could not load {source_name} for {chosen_adm}: {e}"
                 )
 
         if df is None:
