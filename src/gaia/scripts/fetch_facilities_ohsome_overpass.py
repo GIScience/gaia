@@ -8,7 +8,7 @@ import pandas as pd
 import overpass
 import warnings
 from datetime import datetime, timezone
-from shapely.geometry import mapping
+from shapely.geometry import box, mapping
 
 from gaia.defs.utils import to_4326
 
@@ -218,7 +218,7 @@ def _extract_raw_geometries(context_log, boundary, output_dir, country_code, tim
     endpoint. One request per category over the country bbox is enough.
     """
     minx, miny, maxx, maxy = boundary.total_bounds.tolist()
-    aoi = [minx, miny, maxx, maxy]
+    aoi = mapping(box(minx, miny, maxx, maxy))
     timestamp = time or "latest"
 
     temp_dir = output_dir / "Temporary"
@@ -229,7 +229,7 @@ def _extract_raw_geometries(context_log, boundary, output_dir, country_code, tim
     for category, filter_str in OHSOME_FILTERS.items():
         body = {
             "clip": True,
-            "timestamp": timestamp,
+            "time": timestamp,
             "filter": filter_str,
             "aoi": aoi,
         }
