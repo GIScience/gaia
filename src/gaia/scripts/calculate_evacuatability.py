@@ -28,6 +28,8 @@ from rasterio.windows import from_bounds, Window
 from rasterio.warp import reproject, Resampling
 from rasterstats import zonal_stats
 from skimage.graph import MCP_Geometric
+
+from gaia.defs.utils import load_admin_boundary
 from pathlib import Path
 
 # Default flood threshold (overridable per call via flood_threshold)
@@ -428,15 +430,18 @@ def compute_evacuability_csv(
     base_path = Path(f"data/{country_code}")
     temp_dir = base_path / "Temporary"
     output_dir = base_path / "Output"
-    boundary_path = base_path / f"{country_code}_{admin_level}.geojson"
-    id_col = f"{admin_level}_PCODE"
-    out_csv = output_dir / f"{country_code}_{admin_level}_evacuability.csv"
 
-    if not boundary_path.exists():
-        log(f"[{country_code}] Boundary not found: {boundary_path}")
+    level, _, gdf, id_col = load_admin_boundary(base_path, country_code, admin_level)
+    if not level:
+        log(f"[{country_code}] No boundary found for {admin_level} or lower levels")
         return None
 
-    gdf = gpd.read_file(boundary_path)
+    if level != admin_level:
+        log(f"[{country_code}] Using fallback admin level {level} (requested {admin_level})")
+    admin_level = level
+
+    out_csv = output_dir / f"{country_code}_{admin_level}_evacuability.csv"
+
     df = pd.DataFrame({id_col: gdf[id_col]})
     had_data = False
 
