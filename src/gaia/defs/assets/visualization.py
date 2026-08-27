@@ -116,23 +116,32 @@ def _generate_pmtiles_for_level(
         gdf.to_file(tmp_path, driver="GeoJSON")
 
     try:
-        result = subprocess.run(
-            [
-                "tippecanoe",
-                "--output",
-                str(pmtiles_path),
-                "--layer",
-                "boundary",
-                "--minimum-zoom",
-                "0",
-                "--maximum-zoom",
-                "10",
-                "--force",
-                tmp_path,
-            ],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "tippecanoe",
+                    "--output",
+                    str(pmtiles_path),
+                    "--layer",
+                    "boundary",
+                    "--minimum-zoom",
+                    "0",
+                    "--maximum-zoom",
+                    "10",
+                    "--force",
+                    tmp_path,
+                ],
+                capture_output=True,
+                text=True,
+            )
+        except OSError as e:
+            # tippecanoe isn't installed/runnable on this machine — skip
+            # PMTiles rather than failing the whole asset over an optional
+            # visualization artifact.
+            context.log.error(
+                f"[{country_code}] Could not run tippecanoe (is it installed?): {e}"
+            )
+            return None
 
         if result.returncode != 0:
             context.log.error(f"[{country_code}] tippecanoe failed:\n{result.stderr}")
