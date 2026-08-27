@@ -6,6 +6,23 @@ import dagster as dg
 from gaia.defs.partitions import country_partitions, multi_partitions
 from gaia.defs.resources import S3Resource, HdxResource
 
+# Indicator files every HDX country page must have before it is created/updated.
+REQUIRED_INDICATOR_LABELS = [
+    "demographics",
+    "facilities",
+    "flood_exposure",
+    "evacuability",
+    "rural_population",
+    "rai",
+    "access",
+    "coping",
+    "vulnerability",
+]
+# Not every country has cyclone exposure data, so it's uploaded when present
+# but never required.
+OPTIONAL_INDICATOR_LABELS = ["cyclone_exposure"]
+ADM_LEVELS = ["ADM2", "ADM1"]
+
 
 @dg.asset(
     deps=[
@@ -59,31 +76,12 @@ def upload_s3_asset(context, s3: S3Resource) -> None:
 def upload_hdx_asset(context, hdx: HdxResource) -> str | None:
     country_code = context.partition_key.upper()
 
-    indicator_labels = [
-        "demographics",
-        "facilities",
-        "flood_exposure",
-        "cyclone_exposure",
-        #"drought_exposure",
-        "rural_population",
-        "rai",
-        "access",
-        "coping",
-        "vulnerability",
-        "evacuability",
-    ]
-
-    # cyclone_exposure is optional: not every country has cyclone exposure data.
-    required_labels = [label for label in indicator_labels if label != "cyclone_exposure"]
-
-    ADM_LEVELS = ["ADM2", "ADM1"]
-
     file_map = {}
     base_output_dir = os.path.join("data", country_code, "Output")
 
     context.log.info(f"Scanning {base_output_dir} for indicator files...")
 
-    for label in indicator_labels:
+    for label in REQUIRED_INDICATOR_LABELS + OPTIONAL_INDICATOR_LABELS:
         for adm in ADM_LEVELS:
             filename = f"{country_code}_{adm}_{label}.csv"
             local_path = os.path.join(base_output_dir, filename)
@@ -96,7 +94,9 @@ def upload_hdx_asset(context, hdx: HdxResource) -> str | None:
                 f"File not found for {label}: tried ADM2 and ADM1. Skipping from upload."
             )
 
-    missing_required = [label for label in required_labels if label not in file_map]
+    missing_required = [
+        label for label in REQUIRED_INDICATOR_LABELS if label not in file_map
+    ]
     if missing_required:
         context.log.warning(
             f"[{country_code}] Missing required indicator file(s) for HDX upload: "
@@ -120,95 +120,80 @@ def upload_hdx_asset(context, hdx: HdxResource) -> str | None:
 
 
 @dg.asset(
-    deps=["upload_hdx_asset"],
+    ins={"upload_hdx_asset": dg.AssetIn()},
     partitions_def=country_partitions,
 )
-def check_hdx_downloads_asset(context) -> bool:
+def check_hdx_downloads_asset(context, upload_hdx_asset: str | None) -> bool:
     """
-    Check that uploaded datasets are accessible on HDX (HOT storage public links).
+    Check that the files referenced from the country's HDX page are actually
+    reachable on public storage (HOT hot.storage.heigit.org).
 
-    Rules:
-    - If all expected files exist → success
-    - If no files exist → success (country not on HDX)
-    - If some files exist but at least one is missing → fail
+    upload_hdx_asset is the dataset URL when a page was created/updated this
+    run, or None when the upload was skipped (missing required files, or an
+    incomplete page was deleted) — in that case there is nothing to check.
+
+    Since upload_hdx_asset only uploads once every required file is present,
+    a page existing implies every required file must be accessible; any
+    single one missing here means the upload silently failed and is a hard
+    failure. cyclone_exposure is optional and only checked informationally.
     """
     country = context.partition_key.upper()
 
-    FILE_TYPES = [
-        "access",
-        "coping",
-        "demographics",
-        "facilities",
-        "flood_exposure",
-        "cyclone_exposure",
-        #"drought_exposure",
-        "rural_population",
-        "rai",
-        "vulnerability",
-        "evacuability",
-    ]
-
-    ADM_LEVELS = ["ADM2", "ADM1"]
+    if not upload_hdx_asset:
+        context.log.info(
+            f"[{country}] No HDX page was created/updated this run, skipping accessibility check."
+        )
+        return True
 
     BASE_HDX_URL = (
         "https://hot.storage.heigit.org/heigit-hdx-public/"
         "risk_assessment_inputs/{country}/{filename}"
     )
 
-    missing_files = []
-    existing_files = []
+    session = requests.Session()
 
-    for file_type in FILE_TYPES:
-        file_found = False
+    def resolve(file_type):
+        """Return (filename, error) for the first ADM level found accessible,
+        or (None, reason) if none was."""
         for adm in ADM_LEVELS:
             filename = f"{country}_{adm}_{file_type}.csv"
             url = BASE_HDX_URL.format(country=country.lower(), filename=filename)
-
             try:
-                r = requests.head(url, timeout=30)
-                if r.status_code == 200:
-                    context.log.info(f"[{country}] HDX file accessible: {filename}")
-                    existing_files.append(filename)
-                    file_found = True
-                    break  # stop at first available ADM level
-                elif r.status_code == 404:
-                    continue  # try next ADM level
-                else:
-                    context.log.warning(
-                        f"[{country}] HDX file returned {r.status_code}: {filename}"
-                    )
-                    missing_files.append((filename, f"HTTP {r.status_code}"))
-                    file_found = True
-                    break
+                r = session.head(url, timeout=30)
             except Exception as e:
-                context.log.error(
-                    f"[{country}] Error accessing HDX file {filename}: {e}"
-                )
-                missing_files.append((filename, str(e)))
-                file_found = True
-                break
+                return filename, str(e)
+            if r.status_code == 200:
+                return filename, None
+            if r.status_code != 404:
+                return filename, f"HTTP {r.status_code}"
+        return f"{country}_ADM2_or_ADM1_{file_type}.csv", "missing"
 
-        if not file_found:
+    missing_required = []
+    for file_type in REQUIRED_INDICATOR_LABELS:
+        filename, error = resolve(file_type)
+        if error:
             context.log.warning(
-                f"[{country}] HDX file not found: {file_type} (tried ADM2 and ADM1)"
+                f"[{country}] Required HDX file not accessible: {file_type} ({error})"
             )
-            missing_files.append((f"{country}_ADM2_or_ADM1_{file_type}.csv", "missing"))
+            missing_required.append((filename, error))
+        else:
+            context.log.info(f"[{country}] HDX file accessible: {filename}")
 
-    if 0 < len(existing_files) < len(FILE_TYPES):
-        # Some files exist but not all → fail
-        error_msg = "\n".join([f"{fname}: {reason}" for fname, reason in missing_files])
+    for file_type in OPTIONAL_INDICATOR_LABELS:
+        filename, error = resolve(file_type)
+        if error:
+            context.log.info(
+                f"[{country}] Optional HDX file not present: {file_type} ({error})"
+            )
+        else:
+            context.log.info(f"[{country}] HDX file accessible: {filename}")
+
+    if missing_required:
+        error_msg = "\n".join(f"{fname}: {reason}" for fname, reason in missing_required)
         raise RuntimeError(
-            f"[{country}] Some HDX files are missing or not accessible:\n{error_msg}"
+            f"[{country}] HDX page exists but required file(s) are missing or "
+            f"not accessible:\n{error_msg}"
         )
 
-    # Otherwise:
-    # - All files exist → success
-    # - No files exist → success (country not on HDX)
-    if len(existing_files) == 0:
-        context.log.info(
-            f"[{country}] No HDX files found, assuming country not uploaded → OK"
-        )
-    else:
-        context.log.info(f"[{country}] All HDX files are accessible")
-
+    context.log.info(f"[{country}] All required HDX files are accessible")
     return True
