@@ -51,6 +51,15 @@ class HdxResource(dg.ConfigurableResource):
             context=context,
         )
 
+    def delete_dataset(self, country_code: str, context) -> bool:
+        from gaia.scripts.upload_to_hdx import smart_delete_from_hdx
+
+        return smart_delete_from_hdx(
+            country_code=country_code,
+            hdx_config=self,
+            context=context,
+        )
+
 
 @dg.definitions
 def resources() -> dg.Definitions:

@@ -116,6 +116,41 @@ def smart_upload_to_hdx(country_code, file_map, hdx_config, context):
     )
 
 
+def smart_delete_from_hdx(country_code, hdx_config, context):
+    """Delete the HDX dataset for a country, if one exists."""
+    country_name = get_hdx_country(country_code)
+
+    Configuration.create(
+        hdx_site=hdx_config.site,
+        user_agent="GaiaSmartUploader",
+        hdx_key=hdx_config.api_key,
+    )
+
+    return delete_country_dataset(country_code, country_name, context)
+
+
+def delete_country_dataset(country_code: str, country_name: str, context) -> bool:
+    """Delete the HDX dataset for a country if it exists. Returns True if a
+    dataset was found and deleted, False if there was nothing to delete."""
+    dataset_name = f"{country_name} - Risk Assessment Indicators"
+    dataset_hdx_name = (
+        dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
+    )
+
+    dataset = Dataset.read_from_hdx(dataset_hdx_name)
+    if not dataset:
+        context.log.info(
+            f"[{country_code}] No HDX dataset '{dataset_hdx_name}' to delete."
+        )
+        return False
+
+    context.log.warning(
+        f"[{country_code}] Deleting incomplete HDX dataset '{dataset_hdx_name}'."
+    )
+    dataset.delete_from_hdx()
+    return True
+
+
 def create_country_dataset(
     country_code: str, country_name: str, links, config, context
 ):

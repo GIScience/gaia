@@ -73,6 +73,9 @@ def upload_hdx_asset(context, hdx: HdxResource) -> str | None:
         "evacuability",
     ]
 
+    # cyclone_exposure is optional: not every country has cyclone exposure data.
+    required_labels = [label for label in indicator_labels if label != "cyclone_exposure"]
+
     ADM_LEVELS = ["ADM2", "ADM1"]
 
     file_map = {}
@@ -92,6 +95,20 @@ def upload_hdx_asset(context, hdx: HdxResource) -> str | None:
             context.log.warning(
                 f"File not found for {label}: tried ADM2 and ADM1. Skipping from upload."
             )
+
+    missing_required = [label for label in required_labels if label not in file_map]
+    if missing_required:
+        context.log.warning(
+            f"[{country_code}] Missing required indicator file(s) for HDX upload: "
+            f"{missing_required}. Skipping HDX page creation/update."
+        )
+        deleted = hdx.delete_dataset(country_code=country_code, context=context)
+        if deleted:
+            context.log.warning(
+                f"[{country_code}] Removed existing HDX page since not all "
+                "required files are available."
+            )
+        return None
 
     url = hdx.smart_upload(
         country_code=country_code,
