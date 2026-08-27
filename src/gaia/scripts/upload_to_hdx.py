@@ -395,14 +395,11 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     dataset.add_tags(tags)
 
     # 6. Set Time Period & Location
+    # Always set to a rolling 6-month window ending today, whether the
+    # dataset is being created or updated.
     end_date = datetime.now(timezone.utc)
     start_date = end_date - timedelta(days=182)
-
-    # Use direct dictionary assignment like your original working script:
-    dataset["dataset_date"] = (
-        f"[{start_date.strftime('%Y-%m-%dT%H:%M:%S')} TO "
-        f"{end_date.strftime('%Y-%m-%dT%H:%M:%S')}]"
-    )
+    dataset.set_time_period(start_date, end_date)
 
     # Ensure country_code is a clean ISO3 string
     iso3_code = country_code.strip().upper()
