@@ -43,4 +43,8 @@ visualization_job = dg.define_asset_job(
         "risk_score_asset",
         "upload_viz_s3_asset",
     ],
+    # Tag every run so a per-job concurrency limit can target it
+    # independently of other jobs (see .dagster/dagster.yaml
+    # concurrency.runs.tag_concurrency_limits).
+    run_tags={"job_group": "visualization"},
 )

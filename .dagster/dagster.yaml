@@ -12,8 +12,12 @@ event_log_storage:
 
 
 concurrency:
-  runs: 
+  runs:
     max_concurrent_runs: 4
+    tag_concurrency_limits:
+      - key: "job_group"
+        value: "visualization"
+        limit: 2
   pools:
     default_limit: 5
     granularity: 'run'
