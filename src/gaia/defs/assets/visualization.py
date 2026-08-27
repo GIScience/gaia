@@ -38,6 +38,113 @@ def _remote_last_modified(url):
         return datetime.min.replace(tzinfo=timezone.utc)
 
 
+def _generate_pmtiles_for_level(
+    context, country_code: str, level: str, output_dir: Path
+) -> str | None:
+    """Generate PMTiles from the boundary at exactly `level`, so the PCODEs
+    in the tiles match the *_combined.parquet / *_risk.parquet files written
+    for that same admin level. No cross-level fallback: if the boundary for
+    `level` isn't available locally, PMTiles are skipped for this level
+    rather than risk mismatching against a different level's boundary."""
+    boundary_geojson = Path("data") / country_code / f"{country_code}_{level}.geojson"
+
+    if not boundary_geojson.exists():
+        context.log.warning(
+            f"[{country_code}] No {level} boundary found; skipping PMTiles for {level}."
+        )
+        return None
+
+    context.log.info(f"[{country_code}] Generating PMTiles from {boundary_geojson}")
+
+    gdf = gpd.read_file(boundary_geojson)
+
+    pcode_field = f"{level}_PCODE"
+
+    # If expected PCODE column doesn't exist, try to detect it
+    if pcode_field not in gdf.columns:
+        candidate = next(
+            (
+                c
+                for c in gdf.columns
+                if level[-1] in c and ("pcode" in c.lower() or "cod" in c.lower())
+            ),
+            None,
+        )
+
+        if candidate:
+            gdf = gdf.rename(columns={candidate: pcode_field})
+            context.log.info(
+                f"[{country_code}] Renamed '{candidate}' → '{pcode_field}'"
+            )
+        else:
+            context.log.warning(
+                f"[{country_code}] No {pcode_field}-like column found; skipping PMTiles for {level}."
+            )
+            return None
+
+    # Standardize schema
+    gdf["ADM_PCODE"] = gdf[pcode_field]
+
+    # Detect the name column (e.g. ADM2_EN, ADM2_NAME, adm2_en, adm2_name)
+    level_num = level[-1]
+    name_col = next(
+        (
+            c
+            for c in gdf.columns
+            if level_num in c and ("en" in c.lower() or "name" in c.lower())
+        ),
+        None,
+    )
+
+    name_field = f"{level}_NAME"
+    keep_cols = [pcode_field, "ADM_PCODE"]
+    if name_col:
+        gdf[name_field] = gdf[name_col]
+        keep_cols.append(name_field)
+        context.log.info(f"[{country_code}] Using '{name_col}' as {name_field}")
+
+    keep_cols.append("geometry")
+    gdf = gdf[keep_cols]
+
+    if gdf.crs is None or gdf.crs.to_epsg() != 4326:
+        gdf = gdf.to_crs(epsg=4326)
+
+    pmtiles_path = output_dir / f"{country_code}_{level}.pmtiles"
+
+    with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False, mode="w") as tmp:
+        tmp_path = tmp.name
+        gdf.to_file(tmp_path, driver="GeoJSON")
+
+    try:
+        result = subprocess.run(
+            [
+                "tippecanoe",
+                "--output",
+                str(pmtiles_path),
+                "--layer",
+                "boundary",
+                "--minimum-zoom",
+                "0",
+                "--maximum-zoom",
+                "10",
+                "--force",
+                tmp_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            context.log.error(f"[{country_code}] tippecanoe failed:\n{result.stderr}")
+            return None
+
+        context.log.info(f"[{country_code}] PMTiles written: {pmtiles_path}")
+        return str(pmtiles_path)
+
+    finally:
+        os.unlink(tmp_path)
+
+
 @dg.asset(
     deps=["boundary_asset", "upload_s3_asset"],
     partitions_def=country_partitions,
@@ -211,116 +318,11 @@ def prep_visualization_asset(context) -> list[str]:
             f"{len(merged.columns)} cols): {out_path}"
         )
 
-    # ------------------------------------------------------------------
-    # Step 3 – Generate PMTiles
-    # ------------------------------------------------------------------
-    adm2_geojson = Path("data") / country_code / f"{country_code}_ADM2.geojson"
-    adm1_geojson = Path("data") / country_code / f"{country_code}_ADM1.geojson"
-
-    # Determine which boundary to use
-    if adm2_geojson.exists():
-        boundary_geojson = adm2_geojson
-        level = "ADM2"
-    elif adm1_geojson.exists():
-        boundary_geojson = adm1_geojson
-        level = "ADM1"
-        context.log.warning(
-            f"[{country_code}] ADM2 boundary not found. Falling back to ADM1."
-        )
-    else:
-        context.log.warning(
-            f"[{country_code}] No ADM1 or ADM2 boundary found; skipping PMTiles."
-        )
-        return output_paths
-
-    context.log.info(f"[{country_code}] Generating PMTiles from {boundary_geojson}")
-
-    gdf = gpd.read_file(boundary_geojson)
-
-    pcode_field = f"{level}_PCODE"
-
-    # If expected PCODE column doesn't exist, try to detect it
-    if pcode_field not in gdf.columns:
-        candidate = next(
-            (
-                c
-                for c in gdf.columns
-                if level[-1] in c and ("pcode" in c.lower() or "cod" in c.lower())
-            ),
-            None,
-        )
-
-        if candidate:
-            gdf = gdf.rename(columns={candidate: pcode_field})
-            context.log.info(
-                f"[{country_code}] Renamed '{candidate}' → '{pcode_field}'"
-            )
-        else:
-            context.log.warning(
-                f"[{country_code}] No {pcode_field}-like column found; skipping PMTiles."
-            )
-            return output_paths
-
-    # Standardize schema
-    gdf["ADM_PCODE"] = gdf[pcode_field]
-
-    # Detect the name column (e.g. ADM2_EN, ADM2_NAME, adm2_en, adm2_name)
-    level_num = level[-1]
-    name_col = next(
-        (
-            c
-            for c in gdf.columns
-            if level_num in c and ("en" in c.lower() or "name" in c.lower())
-        ),
-        None,
-    )
-
-    name_field = f"{level}_NAME"
-    keep_cols = [pcode_field, "ADM_PCODE"]
-    if name_col:
-        gdf[name_field] = gdf[name_col]
-        keep_cols.append(name_field)
-        context.log.info(f"[{country_code}] Using '{name_col}' as {name_field}")
-
-    keep_cols.append("geometry")
-    gdf = gdf[keep_cols]
-
-    if gdf.crs is None or gdf.crs.to_epsg() != 4326:
-        gdf = gdf.to_crs(epsg=4326)
-
-    pmtiles_path = output_dir / f"{country_code}_{level}.pmtiles"
-
-    with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False, mode="w") as tmp:
-        tmp_path = tmp.name
-        gdf.to_file(tmp_path, driver="GeoJSON")
-
-    try:
-        result = subprocess.run(
-            [
-                "tippecanoe",
-                "--output",
-                str(pmtiles_path),
-                "--layer",
-                "boundary",
-                "--minimum-zoom",
-                "0",
-                "--maximum-zoom",
-                "10",
-                "--force",
-                tmp_path,
-            ],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            context.log.error(f"[{country_code}] tippecanoe failed:\n{result.stderr}")
-        else:
-            output_paths.append(str(pmtiles_path))
-            context.log.info(f"[{country_code}] PMTiles written: {pmtiles_path}")
-
-    finally:
-        os.unlink(tmp_path)
+        # Generate PMTiles for this exact admin level, so they always match
+        # the PCODEs in the combined/risk parquet written above.
+        pmtiles_path = _generate_pmtiles_for_level(context, country_code, adm, output_dir)
+        if pmtiles_path:
+            output_paths.append(pmtiles_path)
 
     return output_paths
 

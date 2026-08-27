@@ -95,6 +95,12 @@ def _hdx_config_from_env() -> SimpleNamespace:
     )
 
 
+def get_dataset_hdx_name(country_name: str) -> str:
+    """Return the CKAN/HDX dataset slug for a country's risk assessment dataset."""
+    dataset_name = f"{country_name} - Risk Assessment Indicators"
+    return dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
+
+
 def smart_upload_to_hdx(country_code, file_map, hdx_config, context):
     country_name = get_hdx_country(country_code)
 
@@ -132,10 +138,7 @@ def smart_delete_from_hdx(country_code, hdx_config, context):
 def delete_country_dataset(country_code: str, country_name: str, context) -> bool:
     """Delete the HDX dataset for a country if it exists. Returns True if a
     dataset was found and deleted, False if there was nothing to delete."""
-    dataset_name = f"{country_name} - Risk Assessment Indicators"
-    dataset_hdx_name = (
-        dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
-    )
+    dataset_hdx_name = get_dataset_hdx_name(country_name)
 
     dataset = Dataset.read_from_hdx(dataset_hdx_name)
     if not dataset:
@@ -162,9 +165,7 @@ def create_country_dataset(
     """
     # 1. Setup Naming
     dataset_name = f"{country_name} - Risk Assessment Indicators"
-    dataset_hdx_name = (
-        dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
-    )
+    dataset_hdx_name = get_dataset_hdx_name(country_name)
 
     # 2. Smart Dataset Retrieval / Creation
     dataset = Dataset.read_from_hdx(dataset_hdx_name)
