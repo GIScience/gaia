@@ -26,7 +26,9 @@ OVERPASS_FILTERS = {
 }
 
 OHSOME_BASE_URL = "https://api.heigit.org/ohsome-api/v2-rc"
-OHSOME_COUNT_ENDPOINT = f"{OHSOME_BASE_URL}/stats/features/count.json"
+# .csv (not .json): the stats endpoint's current request/response contract,
+# confirmed against HeiGIT's own ohsome-api example notebook.
+OHSOME_COUNT_ENDPOINT = f"{OHSOME_BASE_URL}/stats/features/count.csv"
 OHSOME_EXTRACTION_ENDPOINT = f"{OHSOME_BASE_URL}/extraction/features.parquet"
 OHSOME_API_KEY = os.getenv("OHSOME_API_KEY", "")
 OHSOME_TIME_SERIES_START = "2020-01-01T00:00:00Z"
@@ -39,6 +41,11 @@ OHSOME_RETRY_BASE_DELAY = 2.0
 # On 413 the geometry is progressively simplified with these tolerances
 # (in degrees) until the request fits. 0.0 = original geometry, tried first.
 OHSOME_GEOM_SIMPLIFY_TOLERANCES = (0.0, 0.001, 0.005, 0.01, 0.05)
+# fetch_ohsome makes one count request per admin unit per category, which
+# for a country with many admin units adds up to hundreds of requests in a
+# row. A small pause between them keeps that well under the API's rate
+# limit instead of relying entirely on per-request retry/backoff.
+OHSOME_REQUEST_PACING_SECONDS = 0.5
 
 OHSOME_FILTERS = {
     "education": "amenity=school",
@@ -244,45 +251,31 @@ def _extract_raw_geometries(context_log, boundary, output_dir, country_code, tim
         context_log.info(f"Wrote raw {category} features to {raw_path}")
 
 
-def _extract_count(data):
+def _extract_count(csv_text, context_log):
     """
-    Extract the most recent feature count from the ohsome stats response.
+    Extract the most recent feature count from the ohsome stats CSV response.
 
-    The endpoint returns a single time series as parallel arrays:
-        {"result": {"timestamp": [...], "value": [...]}}
-    The value at the latest timestamp is the count we want. A few other
-    plausible shapes are kept as fallbacks for forward compatibility.
+    The endpoint returns a few metadata comment lines followed by a
+    "timestamp;value" table, one row per point in the requested time series:
+        # ...metadata...
+        # ...metadata...
+        # ...metadata...
+        timestamp;value
+        2020-12-31T23:59:59Z;12
+        2021-12-31T23:59:59Z;14
+        ...
+    The value at the latest timestamp is the count we want.
     """
-    if not isinstance(data, dict):
+    try:
+        df = pd.read_csv(io.StringIO(csv_text), delimiter=";", header=3)
+    except Exception as e:
+        context_log.warning(f"Could not parse ohsome CSV response: {e}")
         return None
 
-    result = data.get("result")
-    if isinstance(result, dict):
-        values = result.get("value")
-        if isinstance(values, list) and values:
-            last = values[-1]
-            if isinstance(last, (int, float)):
-                return last
-        for value_key in ("value", "count"):
-            if value_key in result and isinstance(result[value_key], (int, float)):
-                return result[value_key]
+    if df.empty or "value" not in df.columns:
+        return None
 
-    for key in ("results", "data"):
-        entries = data.get(key)
-        if isinstance(entries, list) and entries:
-            for entry in reversed(entries):
-                if isinstance(entry, dict):
-                    for value_key in ("value", "count"):
-                        if value_key in entry and isinstance(
-                            entry[value_key], (int, float)
-                        ):
-                            return entry[value_key]
-
-    for key in ("value", "count"):
-        if key in data and isinstance(data[key], (int, float)):
-            return data[key]
-
-    return None
+    return df["value"].iloc[-1]
 
 
 def _query_ohsome_count(filter_str, geometry, end, context_log):
@@ -306,8 +299,7 @@ def _query_ohsome_count(filter_str, geometry, end, context_log):
             else mapping(geometry.simplify(tolerance, preserve_topology=True))
         )
         body = {
-            "groupBy": None,
-            "timeSeries": {
+            "time": {
                 "start": OHSOME_TIME_SERIES_START,
                 "end": end,
                 "interval": OHSOME_TIME_SERIES_INTERVAL,
@@ -332,12 +324,12 @@ def _query_ohsome_count(filter_str, geometry, end, context_log):
             continue
 
         r.raise_for_status()
-        data = r.json()
-        value = _extract_count(data)
+        value = _extract_count(r.text, context_log)
         if value is None:
             context_log.warning(
-                f"Ohsome response missing count for filter '{filter_str}': {data}"
+                f"Ohsome response missing count for filter '{filter_str}': {r.text[:300]}"
             )
+        time.sleep(OHSOME_REQUEST_PACING_SECONDS)
         return value
 
     raise RuntimeError(
