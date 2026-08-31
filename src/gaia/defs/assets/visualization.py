@@ -128,6 +128,12 @@ def _generate_pmtiles_for_level(
                     "0",
                     "--maximum-zoom",
                     "10",
+                    # Every admin polygon must stay individually addressable
+                    # by PCODE (for lookups/joins downstream), even tiny ones
+                    # (e.g. dense urban sub-districts) — without this,
+                    # tippecanoe probabilistically drops some polygons below
+                    # ~4 subpixels entirely rather than rendering them.
+                    "--no-tiny-polygon-reduction",
                     "--force",
                     tmp_path,
                 ],
