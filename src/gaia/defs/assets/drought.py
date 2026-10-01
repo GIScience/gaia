@@ -5,7 +5,7 @@ import dagster as dg
 from gaia.defs.constants import DroughtExposureConfig
 from gaia.defs.partitions import country_partitions
 from gaia.defs.utils import load_admin_boundary
-from gaia.scripts.fetch_drought_exposure import calculate_drought_exposure
+from gaia.scripts.fetch_drought_gdo import calculate_drought_exposure
 
 
 @dg.asset(
@@ -17,9 +17,11 @@ def exposure_drought_asset(
     context, config: DroughtExposureConfig, boundary_asset: str
 ) -> list[str]:
     """
-    Generate drought exposure CSVs using the JRC SPEI-6 global drought-class
-    raster and WorldPop/facilities data. For each configured admin level,
-    computes exposed populations and facilities per drought class.
+    Generate drought exposure CSVs using a global drought-class raster built
+    from the Copernicus Global Drought Observatory SPEI-6 monthly time
+    series, and WorldPop/facilities data. For each configured admin level,
+    computes exposed populations and facilities per drought class (share of
+    qualifying drought-event months, classes 1-4).
     """
     country_code = context.partition_key.upper()
     base_path = Path(boundary_asset if boundary_asset else f"data/{country_code}")
@@ -59,6 +61,9 @@ def exposure_drought_asset(
             country_code=country_code,
             admin_level=admin_level,
             api_choice=config.api.lower(),
+            spei_threshold=config.spei_threshold,
+            min_consecutive_months=config.min_consecutive_months,
+            crop_years=config.years,
         )
         if csv_path:
             outputs.append(csv_path)

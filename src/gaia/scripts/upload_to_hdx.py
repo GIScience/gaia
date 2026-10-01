@@ -217,7 +217,7 @@ Data Source: [IBTrACS – NOAA International Best Track Archive for Climate Stew
 
     dataset_notes = f"""
 This dataset provides comprehensive **Risk Assessment Indicators** for **{country_name}**, aggregated at **admin level {admin_level_num}** and
-can in particular be used to perform a structured risk assessment for **flood** and **drought** hazards{(" and **cyclone** hazards." if include_cyclone else ".")}
+can in particular be used to perform a structured risk assessment for **flood** hazards{(" and **cyclone** hazards." if include_cyclone else ".")}
 It includes demographic, environmental, infrastructure, accessibility, and hazard-related data to support disaster risk and resilience analysis.
 
 All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.io/gis-training-resource-center/en/GIS_AA/en_gaia_indicators_processing.html), integrating open data sources such as [WorldPop](https://www.worldpop.org/), 

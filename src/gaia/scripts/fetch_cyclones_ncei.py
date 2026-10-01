@@ -7,17 +7,19 @@ Outputs CSV: {country_code}_{admin_level}_cyclone_exposure.csv
 """
 
 import os
-from pathlib import Path
 import zipfile
+from pathlib import Path
 import geopandas as gpd
 import numpy as np
 import rasterio
 from rasterio.features import rasterize
 from rasterstats import zonal_stats
 import pandas as pd
+from gaia.defs.constants import FACILITY_CATEGORIES, POP_INDICATORS, REPO_ROOT
 from gaia.defs.utils import to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
+from gaia.scripts.fetch_worldcover import DEFAULT_CROPS_YEAR, crop_exposure_km2
 
 
 # -----------------------------
@@ -38,28 +40,11 @@ IBTRACS_URL = (
     "https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/"
     "v04r01/access/shapefile/IBTrACS.since1980.list.v04r01.lines.zip"
 )
-ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-DOWNLOAD_DIR = os.path.join(ROOT_DIR, "downloads")
+DOWNLOAD_DIR = os.path.join(REPO_ROOT, "downloads")
 IBTRACS_LOCAL_ZIP = os.path.join(
     DOWNLOAD_DIR, "IBTrACS.since1980.list.v04r01.lines.zip"
 )
 
-# -----------------------------
-# Config
-# -----------------------------
-FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
-POP_INDICATORS = [
-    "total_pop",
-    "female_pop",
-    "children_u5",
-    "female_u5",
-    "elderly",
-    "pop_u15",
-    "female_u15",
-    "wra_pop",
-    "dep_dependents",
-    "dep_working",
-]
 EXPOSURE_CLASSES = [1, 2, 3]  # cyclone categories
 
 
@@ -197,7 +182,11 @@ def rasterize_cyclone_buffers(context: Context, buffer_geojson: str, country_cod
 # Step 4: Calculate exposure
 # -----------------------------
 def calculate_cyclone_exposure(
-    context, country_code: str, admin_level="ADM2", api_choice="ohsome-api"
+    context,
+    country_code: str,
+    admin_level="ADM2",
+    api_choice="ohsome-api",
+    crop_years: list | None = None,
 ):
     country_code = country_code.upper()
     admin_level = admin_level.upper()
@@ -334,6 +323,19 @@ def calculate_cyclone_exposure(
                     ),
                     axis=1,
                 )
+
+    # --- Cropland exposure, per cyclone category ---
+    crop_year = crop_years[-1] if crop_years else DEFAULT_CROPS_YEAR
+    crop_exposure = crop_exposure_km2(
+        context,
+        country_code,
+        gdf_admin,
+        {f"cat{cls}": class_masks[cls] for cls in EXPOSURE_CLASSES},
+        year=crop_year,
+    )
+    if crop_exposure:
+        for cls in EXPOSURE_CLASSES:
+            df[f"kt34_crops_km2_cat{cls}"] = crop_exposure[f"cat{cls}"]
 
     numeric_cols = [
         c

@@ -8,10 +8,67 @@ DATA_DIR = REPO_ROOT / "data"
 
 # Defaults mirroring the former configs/assets_config.yaml
 DEFAULT_ADMIN_LEVELS = ["ADM2"]
+# The only return periods JRC GLOFAS actually publishes flood-hazard tiles
+# for; also used by fetch_floods_jrc.py to validate a requested RP.
 DEFAULT_RPS = ["10", "50", "100", "500"]
 DEFAULT_FLOOD_THRESHOLD = 0.3  # meters
 DEFAULT_FACILITIES_API = "ohsome-api"  # or overpass
-DEFAULT_CROPS_YEARS = [2023, 2024]
+# ESA WorldCover ships exactly two map releases (2020, 2021) rather than an
+# annual product (see fetch_worldcover.WORLDCOVER_VERSIONS); a requested year
+# outside that set snaps back to this default.
+DEFAULT_CROPS_YEAR = 2021
+# Kept as a list for config-schema continuity with CropsConfig.years below;
+# only the last entry is actually used (see fetch_worldcover._resolve_year).
+DEFAULT_CROPS_YEARS = [DEFAULT_CROPS_YEAR]
+# SPEI-6 <= this value counts as a drought month ("severe-or-worse"); -1.0
+# would be "moderate-or-worse". See
+# https://drought.emergency.copernicus.eu/tumbo/gdo/download/
+DEFAULT_SPEI_THRESHOLD = -1.5
+# A pixel-month only counts toward a drought event once this many
+# consecutive months are all below the SPEI threshold.
+DEFAULT_MIN_CONSECUTIVE_MONTHS = 3
+
+# Shared across flood, cyclone, and drought exposure scripts.
+FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
+POP_INDICATORS = [
+    "total_pop",
+    "female_pop",
+    "children_u5",
+    "female_u5",
+    "elderly",
+    "pop_u15",
+    "female_u15",
+    "wra_pop",
+    "dep_dependents",
+    "dep_working",
+]
+
+# Risk score methodology, kept in sync with the Disaster Risk Composer
+# dashboard (GIScience/Hazard-Risk-Composer), which recomputes the scores in
+# the browser from the indicator columns of the *_risk.parquet files.
+#
+# Coping indicators are inverted (1 - normalized value, higher raw value =
+# better coping) except those that already measure a lack of coping capacity;
+# a cop_ column matching any of these regexes is used as-is.
+COPING_NON_INVERTED_PATTERNS = (
+    r"_evac_time_minutes_(mean|median|max)$",
+    r"_pixels_at_risk$",
+    r"_dependency_ratio$",
+)
+# Hazard-specific coping columns; every other cop_ column counts for all hazards.
+COPING_HAZARD_PATTERNS = {
+    "flood": r"^cop_RP\d+_",
+    "cyclone": r"^cop_kt34_",
+}
+# Exposure column prefix per hazard scored in the *_risk.parquet.
+EXPOSURE_PREFIXES = {
+    "flood": "exp_flo_",
+    "cyclone": "exp_cyc_",
+}
+# Indicator columns kept out of the *_risk.parquet: the dashboard has no
+# drought hazard yet and would treat exp_dro_* / exp_drought as flood and
+# cyclone inputs. Drought exposure stays in the local *_combined.parquet.
+UNPUBLISHED_INDICATOR_PREFIXES = ("exp_dro_",)
 
 # Flood chunking: when a country's ADM2 raster footprint exceeds this many
 # cells, exposure_flood_asset splits the country into smaller chunks (groups of
@@ -47,9 +104,11 @@ class FloodExposureConfig(SetupConfig, FacilitiesConfig, CropsConfig):
     pass
 
 
-class CycloneExposureConfig(SetupConfig, FacilitiesConfig):
+class CycloneExposureConfig(SetupConfig, FacilitiesConfig, CropsConfig):
     pass
 
 
-class DroughtExposureConfig(FacilitiesConfig):
+class DroughtExposureConfig(FacilitiesConfig, CropsConfig):
     admin_levels: list[str] = DEFAULT_ADMIN_LEVELS
+    spei_threshold: float = DEFAULT_SPEI_THRESHOLD
+    min_consecutive_months: int = DEFAULT_MIN_CONSECUTIVE_MONTHS

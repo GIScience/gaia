@@ -151,6 +151,7 @@ def exposure_cyclone_asset(
             country_code=country_code,
             admin_level=admin_level,
             api_choice=config.api.lower(),
+            crop_years=config.years,
         )
         if csv_path:
             outputs.append(csv_path)

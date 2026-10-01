@@ -13,11 +13,8 @@ import dagster as dg
 
 from gaia.defs.partitions import country_partitions
 from gaia.defs.resources import S3Resource
-from gaia.defs.utils import (
-    normalize_indicators,
-    guess_missing_indicators,
-    calculate_geometric_mean,
-)
+from gaia.defs.constants import UNPUBLISHED_INDICATOR_PREFIXES
+from gaia.defs.risk import compute_risk_scores
 
 
 def _remote_last_modified(url):
@@ -174,7 +171,7 @@ def prep_visualization_asset(context) -> list[str]:
         "vulnerability": "vul_",
         "flood_exposure": "exp_flo_",
         "cyclone_exposure": "exp_cyc_",
-        #"drought_exposure": "exp_dro_",
+        "drought_exposure": "exp_dro_",
     }
 
     REMOTE_FILES = {
@@ -182,13 +179,10 @@ def prep_visualization_asset(context) -> list[str]:
         "vulnerability": "{country}_{adm}_vulnerability.csv",
         "flood_exposure": "{country}_{adm}_flood_exposure.csv",
         "cyclone_exposure": "{country}_{adm}_cyclone_exposure.csv",
-        #"drought_exposure": "{country}_{adm}_drought_exposure.csv",
+        "drought_exposure": "{country}_{adm}_drought_exposure.csv",
     }
 
-    OPTIONAL_SOURCES = {"flood_exposure",
-                        "cyclone_exposure",
-                        #"drought_exposure"
-                    }
+    OPTIONAL_SOURCES = {"flood_exposure", "cyclone_exposure", "drought_exposure"}
 
     BASE_URL = "https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/{country}/{file}"
 
@@ -369,100 +363,15 @@ def risk_score_asset(context, prep_visualization_asset: List[str]) -> list[str]:
 
         df = df.set_index(id_col)
 
-        # ------------------------------------------------
-        # Identify indicator groups
-        # ------------------------------------------------
-        coping_cols = [c for c in df.columns if c.startswith("cop_")]
-        vulnerability_cols = [c for c in df.columns if c.startswith("vul_")]
-        flood_cols = [c for c in df.columns if c.startswith("exp_flo_")]
-        cyclone_cols = [c for c in df.columns if c.startswith("exp_cyc_")]
-        drought_cols = [c for c in df.columns if c.startswith("exp_dro_")]
-
-        # ------------------------------------------------
-        # Build indicator dataframe (Raw features)
-        # ------------------------------------------------
-        coping = df[coping_cols]
-        vulnerability = df[vulnerability_cols]
-
-        exposures = {}
-        # We'll keep a list of all raw exposure columns to include later
-        raw_exposure_cols = []
-
-        if flood_cols:
-            flood = df[flood_cols].copy()
-            raw_exposure_cols.extend(flood_cols)
-            flood.columns = [c.replace("exp_flo_", "exp_") for c in flood.columns]
-            exposures["flood"] = flood
-
-        if cyclone_cols:
-            cyclone = df[cyclone_cols].copy()
-            raw_exposure_cols.extend(cyclone_cols)
-            cyclone.columns = [c.replace("exp_cyc_", "exp_") for c in cyclone.columns]
-            exposures["cyclone"] = cyclone
-
-        if drought_cols:
-            drought = df[drought_cols].copy()
-            raw_exposure_cols.extend(drought_cols)
-            drought.columns = [c.replace("exp_dro_", "exp_") for c in drought.columns]
-            exposures["drought"] = drought
-
-        # This contains your columns BEFORE normalization
-        indicators = pd.concat(
-            [coping, vulnerability] + list(exposures.values()), axis=1
+        # Raw indicator columns are kept; composite columns are appended.
+        # See gaia.defs.risk for the methodology.
+        df = df.drop(
+            columns=[c for c in df.columns if c.startswith(UNPUBLISHED_INDICATOR_PREFIXES)]
         )
-
-        # Create a copy of the RAW columns to merge later
-        # We use the original prefix names from 'df' to keep them distinct
-        raw_features = df[coping_cols + vulnerability_cols + raw_exposure_cols]
-
-        # ------------------------------------------------
-        # Normalize indicators
-        # ------------------------------------------------
-        normalized = normalize_indicators(indicators.copy())
-        full = guess_missing_indicators(normalized)
-
-        # ------------------------------------------------
-        # Compute shared components
-        # ------------------------------------------------
-        cop_vals = full[[c for c in full.columns if c.startswith("cop_")]]
-        vul_vals = full[[c for c in full.columns if c.startswith("vul_")]]
-
-        cop_score = (1 - cop_vals).mean(axis=1)
-        vul_score = vul_vals.mean(axis=1)
-
-        sus_score = calculate_geometric_mean(vul_score, cop_score)
-
-        # ------------------------------------------------
-        # Prepare result dataframe
-        # ------------------------------------------------
-        results = pd.DataFrame(index=full.index)
-
-        # Join the raw features back in here
-        results = results.join(raw_features)
-
-        results["cop"] = cop_score
-        results["vul"] = vul_score
-
-        # ------------------------------------------------
-        # Loop over exposure types
-        # ------------------------------------------------
-        for exp_type, exp_df in exposures.items():
-            exp_cols = [
-                c.replace("exp_flo_", "exp_")
-                .replace("exp_cyc_", "exp_")
-                .replace("exp_dro_", "exp_")
-                for c in exp_df.columns
-            ]
-            exp_vals = full[exp_cols]
-
-            exp_score = exp_vals.mean(axis=1)
-
-            risk = calculate_geometric_mean(exp_score, sus_score)
-
-            results[f"exp_{exp_type}"] = exp_score
-            results[f"sus_{exp_type}"] = sus_score
-            results[f"risk_{exp_type}"] = risk
-            results[f"ranking_{exp_type}"] = risk.rank(ascending=False)
+        indicator_cols = [
+            c for c in df.columns if c.startswith(("cop_", "vul_", "exp_"))
+        ]
+        results = df[indicator_cols].join(compute_risk_scores(df))
 
         results.reset_index(inplace=True)
 

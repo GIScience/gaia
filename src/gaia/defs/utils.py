@@ -92,17 +92,3 @@ def normalize_indicators(indicators_df):
         indicators_df[cols] = indicators_df[cols].apply(normalize, axis=0)
 
     return indicators_df
-
-
-def guess_missing_indicators(df):
-    coping_columns = [c for c in df.columns if c.startswith("cop_")]
-    df[coping_columns] = df[coping_columns].fillna(0)
-
-    vulnerability_columns = [c for c in df.columns if c.startswith("vul_")]
-    df[vulnerability_columns] = df[vulnerability_columns].fillna(1)
-
-    return df
-
-
-def calculate_geometric_mean(col1, col2):
-    return np.sqrt(col1 * col2)

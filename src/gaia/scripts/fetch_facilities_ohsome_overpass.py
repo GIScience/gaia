@@ -221,7 +221,7 @@ def _extract_raw_geometries(context_log, boundary, output_dir, country_code, tim
     """Fetch facility geometries per category via the ohsome extraction endpoint.
 
     The stats API only returns aggregated counts; the raw geometries that the
-    flood/cyclone/drought steps sample rasters at come from the extraction
+    flood/cyclone steps sample rasters at come from the extraction
     endpoint. One request per category over the country bbox is enough.
     """
     minx, miny, maxx, maxy = boundary.total_bounds.tolist()

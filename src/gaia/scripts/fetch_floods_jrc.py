@@ -17,14 +17,17 @@ import rioxarray
 from shapely.geometry import mapping
 from pathlib import Path
 
+from gaia.defs.constants import DEFAULT_RPS, FACILITY_CATEGORIES, POP_INDICATORS
 from gaia.defs.utils import estimate_raster_cells, to_4326
 from gaia.scripts.fetch_worldpop import fetch_worldpop, INDICATORS
 from gaia.scripts.fetch_facilities_ohsome_overpass import fetch_overpass, fetch_ohsome
+from gaia.scripts.fetch_worldcover import DEFAULT_CROPS_YEAR, crop_exposure_km2
 
 BASE_URL_TEMPLATE = (
     "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-GLOFAS/flood_hazard/{rp}/"
 )
-ALLOWED_RPS = ["10", "50", "100", "500"]
+# The only return periods JRC GLOFAS publishes flood-hazard tiles for.
+ALLOWED_RPS = DEFAULT_RPS
 
 
 def parse_listing(rp):
@@ -281,157 +284,18 @@ def _compute_rp_exposure(
     indicators,
     geojsons_map,
     crop_years,
-    ee_initialized,
-    chunk_tag="",
     chunk_label="",
     flood_mask_path=None,
 ):
     """Compute flooded crops/population/facilities for a single RP over a
     single slice of admin units (the whole country or one spatial chunk).
-    Returns a per-unit rp_df. `chunk_tag` disambiguates temporary crop CSVs
-    when several spatial chunks share the same RP.
+    Returns a per-unit rp_df.
 
     `flood_mask_path` is the shared country-wide 1 km flood mask built by
     `_build_flood_mask_1km`. When provided, the population overlay reads that
     single file (identical for every chunk and for the whole-country run)
     instead of reprojecting the 100 m mosaic per call."""
     rp_df = pd.DataFrame({f"{admin_level}_PCODE": unit_gdf[f"{admin_level}_PCODE"]})
-
-    # ---- Flooded crops (GEE pixel-level overlay via JRC GLOFAS + Dynamic World) ----
-    if crop_years:
-        rp_df[f"RP{rp}_crops_{thresh_suffix}_km2"] = 0.0
-        rp_df[f"RP{rp}_crops_{thresh_suffix}_areapct"] = 0.0
-        rp_df[f"RP{rp}_crops_{thresh_suffix}_croppct"] = 0.0
-
-        if ee_initialized:
-            try:
-                import ee
-                import geemap
-
-                crop_year = crop_years[-1]
-                rp_band = f"RP{rp}_depth"
-
-                glofas = ee.ImageCollection("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
-                flood_img = glofas.select(rp_band).first()
-                flood_mask = flood_img.gt(flood_threshold).rename("flooded")
-
-                dw = ee.ImageCollection("GOOGLE/DYNAMICWORLD/V1")
-                chunk_size = 5
-                start_idx = 0
-
-                while start_idx < len(unit_gdf):
-                    end_idx = min(start_idx + chunk_size, len(unit_gdf))
-                    gdf_chunk = unit_gdf.iloc[start_idx:end_idx]
-
-                    fc = geemap.geopandas_to_ee(gdf_chunk)
-
-                    def add_flood_crop_stats(feature):
-                        geom = feature.geometry()
-
-                        crop_coll = (
-                            dw.filterDate(f"{crop_year}-01-01", f"{crop_year}-12-31")
-                            .filterBounds(geom)
-                            .select("label")
-                        )
-                        crop_composite = crop_coll.reduce(ee.Reducer.mode())
-                        crop_mask = crop_composite.eq(4).rename("crop")
-
-                        pixel_area = ee.Image.pixelArea()
-                        admin_area_km2 = ee.Number(geom.area()).divide(1e6)
-
-                        flooded_crop = crop_mask.updateMask(flood_mask)
-
-                        flooded_crop_area_m2 = (
-                            flooded_crop.multiply(pixel_area)
-                            .reduceRegion(
-                                reducer=ee.Reducer.sum(),
-                                geometry=geom,
-                                scale=90,
-                                bestEffort=True,
-                            )
-                            .get("crop")
-                        )
-                        flooded_crop_km2 = ee.Number(flooded_crop_area_m2).divide(1e6)
-
-                        total_crop_area_m2 = (
-                            crop_mask.multiply(pixel_area)
-                            .reduceRegion(
-                                reducer=ee.Reducer.sum(),
-                                geometry=geom,
-                                scale=10,
-                                bestEffort=True,
-                            )
-                            .get("crop")
-                        )
-                        total_crop_km2 = ee.Number(total_crop_area_m2).divide(1e6)
-
-                        areapct = flooded_crop_km2.divide(admin_area_km2).multiply(100)
-                        croppct = ee.Algorithms.If(
-                            total_crop_km2.gt(0),
-                            flooded_crop_km2.divide(total_crop_km2).multiply(100),
-                            0,
-                        )
-
-                        return feature.set(
-                            {
-                                "crop_km2": flooded_crop_km2,
-                                "crop_areapct": areapct,
-                                "crop_croppct": croppct,
-                            }
-                        )
-
-                    fc_stats = fc.map(add_flood_crop_stats)
-                    fc_out = fc_stats.select(
-                        propertySelectors=[
-                            f"{admin_level}_PCODE",
-                            "crop_km2",
-                            "crop_areapct",
-                            "crop_croppct",
-                        ],
-                        retainGeometry=False,
-                    )
-
-                    temp_csv = temp_dir / (
-                        f"flood_crop_RP{rp}{chunk_tag}_chunk{start_idx}.csv"
-                    )
-                    geemap.ee_to_csv(fc_out, filename=str(temp_csv))
-
-                    df_chunk = pd.read_csv(temp_csv)
-                    for c in ["crop_km2", "crop_areapct", "crop_croppct"]:
-                        df_chunk[c] = pd.to_numeric(
-                            df_chunk[c], errors="coerce"
-                        ).fillna(0)
-
-                    for _, row_cf in df_chunk.iterrows():
-                        pcode = row_cf[f"{admin_level}_PCODE"]
-                        match = rp_df[rp_df[f"{admin_level}_PCODE"] == pcode].index
-                        if not match.empty:
-                            i = match[0]
-                            rp_df.loc[i, f"RP{rp}_crops_{thresh_suffix}_km2"] = round(
-                                row_cf["crop_km2"], 2
-                            )
-                            rp_df.loc[i, f"RP{rp}_crops_{thresh_suffix}_areapct"] = (
-                                round(row_cf["crop_areapct"], 2)
-                            )
-                            rp_df.loc[i, f"RP{rp}_crops_{thresh_suffix}_croppct"] = (
-                                round(row_cf["crop_croppct"], 2)
-                            )
-
-                    os.remove(temp_csv)
-                    start_idx = end_idx
-                    context.info(
-                        f"Crops chunk {start_idx // chunk_size}/{-(-len(unit_gdf) // chunk_size)} done for RP{rp}"
-                    )
-
-                context.info(
-                    f"Processed flooded crops >{flood_threshold} m ({thresh_suffix})"
-                )
-
-            except Exception as e:
-                context.warning(f"Flooded crops computation failed: {e}")
-                rp_df[f"RP{rp}_crops_{thresh_suffix}_km2"] = 0.0
-                rp_df[f"RP{rp}_crops_{thresh_suffix}_areapct"] = 0.0
-                rp_df[f"RP{rp}_crops_{thresh_suffix}_croppct"] = 0.0
 
     # ---- Flooded population ----
     # All WorldPop indicator rasters share the same grid, so a single shared
@@ -453,6 +317,20 @@ def _compute_rp_exposure(
         )
         flood_mask = (flood_aligned > flood_threshold).astype("float32")
         del flood_aligned
+
+    # ---- Flooded cropland (ESA WorldCover) ----
+    if crop_years:
+        crop_year = crop_years[-1] if crop_years else DEFAULT_CROPS_YEAR
+        crop_exposure = crop_exposure_km2(
+            context,
+            country_code,
+            unit_gdf,
+            {thresh_suffix: flood_mask.values},
+            year=crop_year,
+        )
+        rp_df[f"RP{rp}_crops_{thresh_suffix}_km2"] = (
+            crop_exposure[thresh_suffix] if crop_exposure else 0.0
+        )
 
     for label in indicators:
         pop_raster_path = tif_map[label]
@@ -584,9 +462,8 @@ def process_flood_impact(
     Process flooded population, crops, and facilities for all RPs of a given
     country/admin_level. Generates a single CSV with columns for each RP,
     indicator, threshold, flooded cropland area, and flooded facilities.
-    Flooded cropland area is computed server-side in GEE: the flood extent
-    per admin unit is uploaded as EE geometries and intersected with
-    Dynamic World crop classification via reduceRegion.
+    Flooded cropland area is computed locally from ESA WorldCover, using the
+    same WorldPop-grid flood mask as the population overlay above.
 
     The country-wide flood mosaic is written to disk with a streaming merge
     (memory bounded by a single clipped tile) and reprojected once onto the
@@ -618,30 +495,14 @@ def process_flood_impact(
     # Ensure WorldPop files exist
     context.info(f"Ensuring demographic rasters exist in {temp_dir}...")
     indicator_tifs = fetch_worldpop(country_code)
-    indicators = [
-        "female_pop",
-        "children_u5",
-        "female_u5",
-        "elderly",
-        "pop_u15",
-        "female_u15",
-        "wra_pop",
-        "dep_dependents",
-        "dep_working",
-    ]
+    # Flood does not report total_pop, unlike drought/cyclone.
+    indicators = [i for i in POP_INDICATORS if i != "total_pop"]
     tif_map = dict(zip(INDICATORS.keys(), indicator_tifs))
 
     # We will use this list to check expected columns so we don't look for deleted columns
     final_indicators = [
-        "female_pop",
-        "children_u5",
-        "female_u5",
-        "elderly",
-        "pop_u15",
-        "female_u15",
-        "wra_pop",
-        "dependency_ratio",
-    ]
+        i for i in indicators if i not in ("dep_dependents", "dep_working")
+    ] + ["dependency_ratio"]
 
     # Ensure facilities exist
     context.info(f"Ensuring facility raw geometries exist in {temp_dir}...")
@@ -663,22 +524,12 @@ def process_flood_impact(
         return None
 
     geojsons_map = {}
-    facility_categories = ["education", "hospitals", "primary_healthcare"]
+    facility_categories = FACILITY_CATEGORIES
     for category in facility_categories:
         if category not in geojsons_map:
             geojsons_map[category] = (
                 base_path / f"Temporary/{country_code}_{category}_raw.geojson"
             )
-
-    ee_initialized = False
-    if crop_years:
-        try:
-            import ee
-
-            ee.Initialize(project="aa-automatization")
-            ee_initialized = True
-        except Exception:
-            ee_initialized = False
 
     for rp in rps:
         context.info(f"Processing RP{rp}...")
@@ -701,8 +552,6 @@ def process_flood_impact(
                 for suffix in [THRESH_SUFFIX]
             ]
             + [f"RP{rp}_crops_{suffix}_km2" for suffix in [THRESH_SUFFIX]]
-            + [f"RP{rp}_crops_{suffix}_areapct" for suffix in [THRESH_SUFFIX]]
-            + [f"RP{rp}_crops_{suffix}_croppct" for suffix in [THRESH_SUFFIX]]
         )
         if all(col in final_df.columns for col in expected_cols):
             context.info(f"RP{rp} already processed, skipping...")
@@ -755,7 +604,6 @@ def process_flood_impact(
 
         rp_chunk_dfs = []
         for ci, unit_gdf in enumerate(units_groups):
-            chunk_tag = f"_chunk{ci}" if chunking_active else ""
             chunk_label = (
                 f" [chunk {ci + 1}/{len(units_groups)}]" if chunking_active else ""
             )
@@ -775,8 +623,6 @@ def process_flood_impact(
                     indicators=indicators,
                     geojsons_map=geojsons_map,
                     crop_years=crop_years,
-                    ee_initialized=ee_initialized,
-                    chunk_tag=chunk_tag,
                     chunk_label=chunk_label,
                 )
             )

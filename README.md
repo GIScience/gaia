@@ -160,3 +160,15 @@ dg dev -p 4444
 - `local_workflow_job` — runs the full indicator chain (boundaries, demographics, facilities, exposure, RAI, access, coping, vulnerability, …) for a single country.
 - `country_workflow_sensor` — activate it under **Automation → Sensors**. Every tick it launches the next unprocessed country via `local_workflow_job` while keeping at most **3 runs in flight**, so all countries get processed exactly once with constant, low concurrency.
 - `visualization_job` — combines the indicators into risk scores and PMTiles, then uploads to S3.
+
+## Risk scores
+
+`visualization_job` writes `<CODE>_<ADM>_risk.parquet` per country and uploads it to S3 only (`risk_assessment_inputs/<code>/`); it is not part of the HDX dataset. Drought exposure (`exp_dro_*`) is left out of it until the dashboard supports a drought hazard; it stays in the local `*_combined.parquet`. The [Disaster Risk Composer](https://giscience.github.io/Disaster-Risk-Composer/) recomputes the same scores in the browser from the parquet's indicator columns, so `src/gaia/defs/risk.py` must stay in sync with it:
+
+- Every `exp_*`, `vul_*`, `cop_*` column is min-max normalized across the country's regions; missing values are ignored for min/max.
+- Coping indicators count as *lack* of coping capacity (1 - normalized value), except columns matching `_evac_time_minutes_(mean|median|max)$`, `_pixels_at_risk$` or `_dependency_ratio$`, which are used as-is.
+- Missing values take the worst case: vulnerability and coping count as 1, exposure as 0.
+- `cop_RP*` columns only enter flood scores, `cop_kt34_*` only cyclone scores; all other coping columns enter every hazard.
+- `vul` = mean of vulnerability, `exp_<hazard>` = mean of that hazard's exposure, `sus_<hazard>` = √(vul × coping for that hazard), `risk_<hazard>` = √(exp × sus), `ranking_<hazard>` = rank by risk (1 = highest).
+- `coping_flood` / `coping_cyclone` hold each hazard's coping score; `cop` holds the **flood** coping score (kept for compatibility).
+- The dashboard ignores an explicit list of output columns (`vul`, `cop`, `exp_flood`, `exp_cyclone`, `coping_flood`, `coping_cyclone`, `sus_*`, `risk_*`, `rank_*`, `ranking*`). Any other new output column must be added to that list on the dashboard side first, otherwise it is read as an input indicator.
