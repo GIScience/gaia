@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 import dagster as dg
 
@@ -27,6 +28,23 @@ DEFAULT_SPEI_THRESHOLD = -1.5
 # A pixel-month only counts toward a drought event once this many
 # consecutive months are all below the SPEI threshold.
 DEFAULT_MIN_CONSECUTIVE_MONTHS = 3
+
+# EU countries (`boundary_source: nuts` in countries.yaml) take their
+# boundaries from Eurostat GISCO NUTS instead of OCHA COD-AB. Admin level ->
+# NUTS level; ADM0 is dissolved from ADM1. 
+NUTS_YEAR = 2024
+NUTS_LEVELS = {"ADM1": 1, "ADM2": 2}
+GISCO_NUTS_URL = "https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson"
+# French outermost regions (Guadeloupe, Martinique, Guyane, Réunion, Mayotte)
+# have their own ISO3 codes (e.g. in WorldPop), so they're kept out of FRA.
+NUTS_EXCLUDED_PREFIXES = ("FRY",)
+# Copyright notice required by GISCO; written into the PMTiles metadata
+# (`attribution`) so the frontend can display it.
+NUTS_ATTRIBUTION = (
+    '<a href="https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units/'
+    'territorial-units-statistics">Eurostat GISCO NUTS 2024</a>, '
+    "© EuroGeographics for the administrative boundaries"
+)
 
 # Shared across flood, cyclone, and drought exposure scripts.
 FACILITY_CATEGORIES = ["education", "hospitals", "primary_healthcare"]
@@ -70,6 +88,14 @@ EXPOSURE_PREFIXES = {
 # cyclone inputs. Drought exposure stays in the local *_combined.parquet.
 UNPUBLISHED_INDICATOR_PREFIXES = ("exp_dro_",)
 
+# What upload_hdx_asset does with a country's HDX page. Works from the files
+# on S3 only, never deletes a page (check_hdx_downloads_asset does that), and
+# can be overridden per run (ops: upload_hdx_asset: config: mode: metadata).
+#   "sync":     create/update the page once all required indicator files are
+#               on S3; resources no longer on S3 are removed from the page.
+#   "metadata": update everything except the resources, on existing pages only.
+DEFAULT_HDX_UPLOAD_MODE = "sync"
+
 # Flood chunking: when a country's ADM2 raster footprint exceeds this many
 # cells, exposure_flood_asset splits the country into smaller chunks (groups of
 # ADM2 units) so each run only keeps a bounded raster in memory. Tune per
@@ -112,3 +138,7 @@ class DroughtExposureConfig(FacilitiesConfig, CropsConfig):
     admin_levels: list[str] = DEFAULT_ADMIN_LEVELS
     spei_threshold: float = DEFAULT_SPEI_THRESHOLD
     min_consecutive_months: int = DEFAULT_MIN_CONSECUTIVE_MONTHS
+
+
+class HdxUploadConfig(dg.Config):
+    mode: Literal["sync", "metadata"] = DEFAULT_HDX_UPLOAD_MODE

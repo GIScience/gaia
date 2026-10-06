@@ -66,14 +66,14 @@ def infer_admin_level(links, existing_resources=None, default="ADM2"):
 def get_hdx_country(country_code: str) -> str:
     """Get display name for a country from the packaged YAML mapping."""
     countries = yaml.safe_load(
-        files("gaia.configs").joinpath("hdx_countries.yaml").read_text()
+        files("gaia.configs").joinpath("countries.yaml").read_text()
     )
     try:
         hdx_country = countries[country_code]["hdx_country"]
         return hdx_country.replace("-", " ").title()
     except KeyError:
         raise ValueError(
-            f"Country code '{country_code}' not found in hdx_countries.yaml"
+            f"Country code '{country_code}' not found in countries.yaml"
         )
 
 
@@ -95,13 +95,19 @@ def _hdx_config_from_env() -> SimpleNamespace:
     )
 
 
+def custom_viz_url(country_code: str) -> str:
+    """Dashboard link shown as the custom visualization (iframe) on the HDX page."""
+    return f"https://disaster-risk-composer.heigit.org/#/?country={country_code}&disaster=risk_flood"
+
+
 def get_dataset_hdx_name(country_name: str) -> str:
     """Return the CKAN/HDX dataset slug for a country's risk assessment dataset."""
     dataset_name = f"{country_name} - Risk Assessment Indicators"
     return dataset_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
 
 
-def smart_upload_to_hdx(country_code, file_map, hdx_config, context):
+def smart_upload_to_hdx(country_code, links, hdx_config, context):
+    """Create/update the country page with `links`, a list of (filename, url)."""
     country_name = get_hdx_country(country_code)
 
     Configuration.create(
@@ -109,21 +115,14 @@ def smart_upload_to_hdx(country_code, file_map, hdx_config, context):
         user_agent="GaiaSmartUploader",
         hdx_key=hdx_config.api_key,
     )
-
-    links = []
-    for label, local_path in file_map.items():
-        # local_path is now a string from our os.path.join above
-        fname = os.path.basename(local_path)
-        url = f"https://hot.storage.heigit.org/heigit-hdx-public/risk_assessment_inputs/{country_code.lower()}/{fname}"
-        links.append((fname, url))
 
     return create_country_dataset(
         country_code, country_name, links, hdx_config, context
     )
 
 
-def smart_delete_from_hdx(country_code, hdx_config, context):
-    """Delete the HDX dataset for a country, if one exists."""
+def update_hdx_metadata(country_code, hdx_config, context):
+    """Update everything but the resources on an existing country page."""
     country_name = get_hdx_country(country_code)
 
     Configuration.create(
@@ -132,35 +131,32 @@ def smart_delete_from_hdx(country_code, hdx_config, context):
         hdx_key=hdx_config.api_key,
     )
 
-    return delete_country_dataset(country_code, country_name, context)
-
-
-def delete_country_dataset(country_code: str, country_name: str, context) -> bool:
-    """Delete the HDX dataset for a country if it exists. Returns True if a
-    dataset was found and deleted, False if there was nothing to delete."""
-    dataset_hdx_name = get_dataset_hdx_name(country_name)
-
-    dataset = Dataset.read_from_hdx(dataset_hdx_name)
-    if not dataset:
-        context.log.info(
-            f"[{country_code}] No HDX dataset '{dataset_hdx_name}' to delete."
-        )
-        return False
-
-    context.log.warning(
-        f"[{country_code}] Deleting incomplete HDX dataset '{dataset_hdx_name}'."
+    return create_country_dataset(
+        country_code, country_name, [], hdx_config, context, metadata_only=True
     )
-    dataset.delete_from_hdx()
-    return True
+
+
+def read_country_dataset(country_code, hdx_config):
+    """Return the country's HDX dataset, or None if it has no page."""
+    Configuration.create(
+        hdx_site=hdx_config.site,
+        user_agent="GaiaSmartUploader",
+        hdx_key=hdx_config.api_key,
+    )
+
+    return Dataset.read_from_hdx(
+        get_dataset_hdx_name(get_hdx_country(country_code))
+    )
 
 
 def create_country_dataset(
-    country_code: str, country_name: str, links, config, context
+    country_code: str, country_name: str, links, config, context, metadata_only=False
 ):
     """
     Smart Create or Update:
     - If dataset exists, updates metadata and specific resources.
     - If links is empty, only updates metadata/notes.
+    - If metadata_only, only updates an existing dataset and leaves its resources untouched.
     - Preserves all your original indicator descriptions.
     """
     # 1. Setup Naming
@@ -180,6 +176,9 @@ def create_country_dataset(
         for res in existing_resources:
             if res.get("name") and "cyclone" in res["name"].lower():
                 existing_cyclone = True
+    elif metadata_only:
+        context.log.info(f"Dataset '{dataset_hdx_name}' not found. Nothing to update.")
+        return None
     else:
         context.log.info(f"Dataset '{dataset_hdx_name}' not found. Creating a new one.")
         dataset = Dataset({"name": dataset_hdx_name, "title": dataset_name})
@@ -378,9 +377,7 @@ We are happy to hear about your use-cases — contact us at [communications@heig
     )
     dataset["subnational"] = "1"
     dataset["notes"] = dataset_notes
-    dataset.set_custom_viz(
-        f"https://giscience.github.io/Disaster-Risk-Composer/#/?country={country_code}&disaster=risk_flood"
-    )
+    dataset.set_custom_viz(custom_viz_url(country_code))
 
     # 5. Handle Tags
     tags = [
@@ -444,7 +441,7 @@ We are happy to hear about your use-cases — contact us at [communications@heig
 
     # 8. Commit to HDX
     if dataset.get("id"):
-        dataset.update_in_hdx()
+        dataset.update_in_hdx(update_resources=not metadata_only)
     else:
         dataset.create_in_hdx()
 

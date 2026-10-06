@@ -1,5 +1,5 @@
 """
-Check, for every country listed in hdx_countries.yaml, whether it currently
+Check, for every country listed in countries.yaml, whether it currently
 has a live HDX dataset page ("Risk Assessment Indicators"), and write the
 result to a YAML file.
 
@@ -25,7 +25,7 @@ from gaia.scripts.upload_to_hdx import (
 
 def load_country_codes() -> list[str]:
     countries = yaml.safe_load(
-        files("gaia.configs").joinpath("hdx_countries.yaml").read_text()
+        files("gaia.configs").joinpath("countries.yaml").read_text()
     )
     return sorted(countries.keys())
 

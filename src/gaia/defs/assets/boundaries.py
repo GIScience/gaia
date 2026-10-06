@@ -3,18 +3,23 @@ import os
 import geopandas as gpd
 import dagster as dg
 
-from gaia.defs.partitions import country_partitions
+from gaia.defs.partitions import NUTS_COUNTRIES, country_partitions
 from gaia.scripts.fetch_boundaries_hdx import download_shapefiles
+from gaia.scripts.fetch_boundaries_nuts import download_nuts_boundaries
 
 
 @dg.asset(partitions_def=country_partitions)
 def boundary_asset(context) -> str:
     """
-    Downloads administrative boundary shapefiles from HDX and converts to GeoJSON.
+    Downloads administrative boundary shapefiles from HDX (or Eurostat NUTS for
+    EU countries) and converts to GeoJSON.
     Checks which admin levels were generated and ensures the ID columns are correctly named.
     """
     country_code = context.partition_key.upper()
-    download_shapefiles(country_code)
+    if country_code in NUTS_COUNTRIES:
+        download_nuts_boundaries(country_code)
+    else:
+        download_shapefiles(country_code)
 
     data_dir = f"data/{country_code}"
     max_admin_level = 2  # ADM0 to ADM2

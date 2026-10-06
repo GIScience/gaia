@@ -19,12 +19,20 @@ ARM:
 ATG:
   region: central-america
   hdx_country: antigua-and-barbuda
+AUT:
+  region: europe
+  hdx_country: austria
+  boundary_source: nuts
 AZE:
   region: asia
   hdx_country: azerbaijan
 BDI:
   region: africa
   hdx_country: burundi
+BEL:
+  region: europe
+  hdx_country: belgium
+  boundary_source: nuts
 BEN:
   region: africa
   hdx_country: benin
@@ -37,6 +45,7 @@ BGD:
 BGR:
   region: europe
   hdx_country: bulgaria
+  boundary_source: nuts
 BHR:
   region: asia
   hdx_country: bahrain
@@ -100,12 +109,24 @@ CRI:
 CUB:
   region: central-america
   hdx_country: cuba
+CZE:
+  region: europe
+  hdx_country: czech-republic
+  boundary_source: nuts
+DEU:
+  region: europe
+  hdx_country: germany
+  boundary_source: nuts
 DJI:
   region: africa
   hdx_country: djibouti
 DMA:
   region: central-america
   hdx_country: dominica
+DNK:
+  region: europe
+  hdx_country: denmark
+  boundary_source: nuts
 DOM:
   region: central-america
   hdx_country: haiti-and-domrep
@@ -124,12 +145,28 @@ ERI:
 ESH:
   region: africa
   hdx_country: morocco
+ESP:
+  region: europe
+  hdx_country: spain
+  boundary_source: nuts
+EST:
+  region: europe
+  hdx_country: estonia
+  boundary_source: nuts
 ETH:
   region: africa
   hdx_country: ethiopia
+FIN:
+  region: europe
+  hdx_country: finland
+  boundary_source: nuts
 FJI:
   region: australia-oceania
   hdx_country: fiji
+FRA:
+  region: europe
+  hdx_country: france
+  boundary_source: nuts
 FSM:
   region: australia-oceania
   hdx_country: micronesia
@@ -157,6 +194,7 @@ GNQ:
 GRC:
   region: europe
   hdx_country: greece
+  boundary_source: nuts
 GRD:
   region: north-america
   hdx_country: greenland
@@ -169,21 +207,34 @@ GUY:
 HND:
   region: central-america
   hdx_country: honduras
+HRV:
+  region: europe
+  hdx_country: croatia
+  boundary_source: nuts
 HTI:
   region: central-america
   hdx_country: haiti-and-domrep
 HUN:
   region: europe
   hdx_country: hungary
+  boundary_source: nuts
 IDN:
   region: asia
   hdx_country: indonesia
+IRL:
+  region: europe
+  hdx_country: ireland
+  boundary_source: nuts
 IRN:
   region: asia
   hdx_country: iran
 IRQ:
   region: asia
   hdx_country: iraq
+ITA:
+  region: europe
+  hdx_country: italy
+  boundary_source: nuts
 JAM:
   region: central-america
   hdx_country: jamaica
@@ -229,6 +280,14 @@ LKA:
 LSO:
   region: africa
   hdx_country: lesotho
+LTU:
+  region: europe
+  hdx_country: lithuania
+  boundary_source: nuts
+LVA:
+  region: europe
+  hdx_country: latvia
+  boundary_source: nuts
 MAR:
   region: africa
   hdx_country: morocco
@@ -286,6 +345,10 @@ NGA:
 NIC:
   region: central-america
   hdx_country: nicaragua
+NLD:
+  region: europe
+  hdx_country: netherlands
+  boundary_source: nuts
 NPL:
   region: asia
   hdx_country: nepal
@@ -310,9 +373,14 @@ PNG:
 POL:
   region: europe
   hdx_country: poland
+  boundary_source: nuts
 PRK:
   region: asia
   hdx_country: north-korea
+PRT:
+  region: europe
+  hdx_country: portugal
+  boundary_source: nuts
 PRY:
   region: south-america
   hdx_country: paraguay
@@ -322,6 +390,7 @@ QAT:
 ROU:
   region: europe
   hdx_country: romania
+  boundary_source: nuts
 RUS:
   region: russia
   hdx_country: russia
@@ -361,6 +430,15 @@ SUR:
 SVK:
   region: europe
   hdx_country: slovakia
+  boundary_source: nuts
+SVN:
+  region: europe
+  hdx_country: slovenia
+  boundary_source: nuts
+SWE:
+  region: europe
+  hdx_country: sweden
+  boundary_source: nuts
 SWZ:
   region: africa
   hdx_country: eswatini

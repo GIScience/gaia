@@ -156,10 +156,20 @@ dg dev -p 4444
 
 ## Running the pipeline
 
-- All assets are **partitioned per country** — 146 ISO3 codes from `src/gaia/configs/hdx_countries.yaml`. Pick a country partition when materializing.
+- All assets are **partitioned per country** — 146 ISO3 codes from `src/gaia/configs/countries.yaml`. Pick a country partition when materializing.
 - `local_workflow_job` — runs the full indicator chain (boundaries, demographics, facilities, exposure, RAI, access, coping, vulnerability, …) for a single country.
 - `country_workflow_sensor` — activate it under **Automation → Sensors**. Every tick it launches the next unprocessed country via `local_workflow_job` while keeping at most **3 runs in flight**, so all countries get processed exactly once with constant, low concurrency.
 - `visualization_job` — combines the indicators into risk scores and PMTiles, then uploads to S3.
+- `upload_hdx_asset` — builds the country's HDX page from the indicator files on S3 (no local files needed). Mode `sync` (default) creates/updates the page once all required files are on S3; `metadata` only updates the page text, tags, iframe link etc. of existing pages. Set the default in `DEFAULT_HDX_UPLOAD_MODE` (`src/gaia/defs/constants.py`) or per run:
+
+  ```yaml
+  ops:
+    upload_hdx_asset:
+      config:
+        mode: metadata
+  ```
+
+- `check_hdx_downloads_asset` — deletes a country's HDX page if it doesn't list every required file or one of them isn't reachable on S3. `upload_hdx_asset` itself never deletes a page.
 
 ## Risk scores
 

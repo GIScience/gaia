@@ -4,9 +4,12 @@ from importlib.resources import files
 import dagster as dg
 
 _countries = yaml.safe_load(
-    files("gaia.configs").joinpath("hdx_countries.yaml").read_text()
+    files("gaia.configs").joinpath("countries.yaml").read_text()
 )
 ALL_COUNTRIES = list(_countries.keys())
+NUTS_COUNTRIES = {
+    code for code, cfg in _countries.items() if cfg.get("boundary_source") == "nuts"
+}
 country_partitions = dg.StaticPartitionsDefinition(partition_keys=ALL_COUNTRIES)
 
 category_partitions = dg.StaticPartitionsDefinition(

@@ -11,9 +11,9 @@ import pandas as pd
 import requests
 import dagster as dg
 
-from gaia.defs.partitions import country_partitions
+from gaia.defs.partitions import NUTS_COUNTRIES, country_partitions
 from gaia.defs.resources import S3Resource
-from gaia.defs.constants import UNPUBLISHED_INDICATOR_PREFIXES
+from gaia.defs.constants import NUTS_ATTRIBUTION, UNPUBLISHED_INDICATOR_PREFIXES
 from gaia.defs.risk import compute_risk_scores
 
 
@@ -107,6 +107,10 @@ def _generate_pmtiles_for_level(
         gdf = gdf.to_crs(epsg=4326)
 
     pmtiles_path = output_dir / f"{country_code}_{level}.pmtiles"
+    # Boundary license notice, readable by the frontend from the PMTiles metadata
+    attribution_args = (
+        ["--attribution", NUTS_ATTRIBUTION] if country_code in NUTS_COUNTRIES else []
+    )
 
     with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False, mode="w") as tmp:
         tmp_path = tmp.name
@@ -132,6 +136,7 @@ def _generate_pmtiles_for_level(
                     # ~4 subpixels entirely rather than rendering them.
                     "--no-tiny-polygon-reduction",
                     "--force",
+                    *attribution_args,
                     tmp_path,
                 ],
                 capture_output=True,

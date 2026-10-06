@@ -41,24 +41,29 @@ class HdxResource(dg.ConfigurableResource):
     )
     private: bool = os.getenv("HDX_PRIVATE", "false").lower() == "true"
 
-    def smart_upload(self, country_code: str, file_map: dict, context) -> str:
+    def smart_upload(self, country_code: str, links: list, context) -> str:
         from gaia.scripts.upload_to_hdx import smart_upload_to_hdx
 
         return smart_upload_to_hdx(
             country_code=country_code,
-            file_map=file_map,
+            links=links,
             hdx_config=self,
             context=context,
         )
 
-    def delete_dataset(self, country_code: str, context) -> bool:
-        from gaia.scripts.upload_to_hdx import smart_delete_from_hdx
+    def update_metadata(self, country_code: str, context) -> str | None:
+        from gaia.scripts.upload_to_hdx import update_hdx_metadata
 
-        return smart_delete_from_hdx(
+        return update_hdx_metadata(
             country_code=country_code,
             hdx_config=self,
             context=context,
         )
+
+    def get_dataset(self, country_code: str):
+        from gaia.scripts.upload_to_hdx import read_country_dataset
+
+        return read_country_dataset(country_code=country_code, hdx_config=self)
 
 
 @dg.definitions
