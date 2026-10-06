@@ -9,6 +9,7 @@ from gaia.defs.constants import (
     NUTS_LEVELS,
     NUTS_YEAR,
 )
+from gaia.defs.partitions import NUTS_ADM1_LEVELS
 from gaia.scripts.download_utils import download_file
 
 
@@ -48,7 +49,10 @@ def download_nuts_boundaries(country_code):
     country_code = country_code.upper()
     os.makedirs(os.path.join("data", country_code), exist_ok=True)
 
-    levels = {adm: load_nuts_level(lvl, country_code) for adm, lvl in NUTS_LEVELS.items()}
+    nuts_levels = {**NUTS_LEVELS}
+    if country_code in NUTS_ADM1_LEVELS:
+        nuts_levels["ADM1"] = NUTS_ADM1_LEVELS[country_code]
+    levels = {adm: load_nuts_level(lvl, country_code) for adm, lvl in nuts_levels.items()}
     if levels["ADM2"].empty:
         raise ValueError(f"{country_code}: no NUTS regions found")
 

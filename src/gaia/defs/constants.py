@@ -31,9 +31,11 @@ DEFAULT_MIN_CONSECUTIVE_MONTHS = 3
 
 # EU countries (`boundary_source: nuts` in countries.yaml) take their
 # boundaries from Eurostat GISCO NUTS instead of OCHA COD-AB. Admin level ->
-# NUTS level; ADM0 is dissolved from ADM1. 
+# NUTS level; ADM0 is dissolved from ADM1. NUTS3 is the closest match to the
+# OCHA ADM2 level across the EU; for ADM1 a country can override the default
+# with `nuts_adm1_level` in countries.yaml (e.g. 1 for the German Länder).
 NUTS_YEAR = 2024
-NUTS_LEVELS = {"ADM1": 1, "ADM2": 2}
+NUTS_LEVELS = {"ADM1": 2, "ADM2": 3}
 GISCO_NUTS_URL = "https://gisco-services.ec.europa.eu/distribution/v2/nuts/geojson"
 # French outermost regions (Guadeloupe, Martinique, Guyane, Réunion, Mayotte)
 # have their own ISO3 codes (e.g. in WorldPop), so they're kept out of FRA.

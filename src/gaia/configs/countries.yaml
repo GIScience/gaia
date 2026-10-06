@@ -33,6 +33,7 @@ BEL:
   region: europe
   hdx_country: belgium
   boundary_source: nuts
+  nuts_adm1_level: 1
 BEN:
   region: africa
   hdx_country: benin
@@ -117,6 +118,7 @@ DEU:
   region: europe
   hdx_country: germany
   boundary_source: nuts
+  nuts_adm1_level: 1
 DJI:
   region: africa
   hdx_country: djibouti
@@ -167,6 +169,7 @@ FRA:
   region: europe
   hdx_country: france
   boundary_source: nuts
+  nuts_adm1_level: 1
 FSM:
   region: australia-oceania
   hdx_country: micronesia

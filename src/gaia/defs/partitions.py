@@ -10,6 +10,11 @@ ALL_COUNTRIES = list(_countries.keys())
 NUTS_COUNTRIES = {
     code for code, cfg in _countries.items() if cfg.get("boundary_source") == "nuts"
 }
+NUTS_ADM1_LEVELS = {
+    code: cfg["nuts_adm1_level"]
+    for code, cfg in _countries.items()
+    if "nuts_adm1_level" in cfg
+}
 country_partitions = dg.StaticPartitionsDefinition(partition_keys=ALL_COUNTRIES)
 
 category_partitions = dg.StaticPartitionsDefinition(
