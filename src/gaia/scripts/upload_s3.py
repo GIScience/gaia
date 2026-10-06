@@ -1,9 +1,14 @@
 import os
 import sys
+import csv
+import shutil
 import hashlib
 import argparse
+import tempfile
 from minio import Minio
 from minio.error import S3Error
+
+from gaia.scripts.fetch_boundaries_nuts import published_id_columns
 
 
 def _local_md5(path: str) -> str:
@@ -14,13 +19,34 @@ def _local_md5(path: str) -> str:
     return md5.hexdigest()
 
 
+def _renamed_csv_copy(path: str, renames: dict) -> str:
+    """Temp copy of a CSV with its header columns renamed; data rows are copied unchanged."""
+    with open(path, encoding="utf-8", newline="") as src, tempfile.NamedTemporaryFile(
+        "w", suffix=".csv", delete=False, encoding="utf-8", newline=""
+    ) as dst:
+        line = src.readline()
+        ending = line[len(line.rstrip("\r\n")):]
+        header = next(csv.reader([line]))
+        csv.writer(dst, lineterminator=ending).writerow(
+            [renames.get(col, col) for col in header]
+        )
+        shutil.copyfileobj(src, dst)
+    return dst.name
+
+
 def upload_folder(
-    client: Minio, bucket: str, in_dir: str, dest_prefix: str, file_filter=None
+    client: Minio,
+    bucket: str,
+    in_dir: str,
+    dest_prefix: str,
+    file_filter=None,
+    column_renames=None,
 ):
     """Walk through all files in in_dir and upload to S3 under dest_prefix.
 
     Skips objects that already exist with the same content and verifies each
-    upload afterwards. Raises if any file failed to upload.
+    upload afterwards. Raises if any file failed to upload. CSV header columns
+    are renamed with `column_renames` in the uploaded copy only.
     """
     failures = []
     uploaded = 0
@@ -37,6 +63,10 @@ def upload_folder(
             rel_path = os.path.relpath(local_path, in_dir)
             # Keep subdirectory structure but put everything under dest_prefix/country
             object_path = os.path.join(dest_prefix, rel_path).replace("\\", "/")
+
+            renamed_copy = None
+            if column_renames and filename.endswith(".csv"):
+                renamed_copy = local_path = _renamed_csv_copy(local_path, column_renames)
 
             try:
                 local_size = os.path.getsize(local_path)
@@ -79,6 +109,9 @@ def upload_folder(
             except Exception as err:
                 failures.append(f"{object_path}: {err}")
                 print(f"Error uploading {local_path}: {err}")
+            finally:
+                if renamed_copy:
+                    os.unlink(renamed_copy)
 
     if failures:
         raise RuntimeError(
@@ -129,6 +162,7 @@ def upload_to_s3(
         in_dir=in_dir,
         dest_prefix=dest_prefix,
         file_filter=dataset_type,  # still filter filenames by dataset_type
+        column_renames=published_id_columns(country.upper()),
     )
 
 

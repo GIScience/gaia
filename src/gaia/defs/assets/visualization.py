@@ -15,6 +15,7 @@ from gaia.defs.partitions import NUTS_COUNTRIES, country_partitions
 from gaia.defs.resources import S3Resource
 from gaia.defs.constants import NUTS_ATTRIBUTION, UNPUBLISHED_INDICATOR_PREFIXES
 from gaia.defs.risk import compute_risk_scores
+from gaia.scripts.fetch_boundaries_nuts import published_id_columns
 
 
 def _remote_last_modified(url):
@@ -101,7 +102,7 @@ def _generate_pmtiles_for_level(
         context.log.info(f"[{country_code}] Using '{name_col}' as {name_field}")
 
     keep_cols.append("geometry")
-    gdf = gdf[keep_cols]
+    gdf = gdf[keep_cols].rename(columns=published_id_columns(country_code))
 
     if gdf.crs is None or gdf.crs.to_epsg() != 4326:
         gdf = gdf.to_crs(epsg=4326)
@@ -238,6 +239,11 @@ def prep_visualization_asset(context) -> list[str]:
                     f"[{country_code}] Loading {source_name} ({chosen_adm}): {chosen_url}"
                 )
                 df = pd.read_csv(chosen_url)
+                # Published CSVs of NUTS countries name their ID columns
+                # NUTS*_CODE; the pipeline works with *_PCODE internally.
+                df = df.rename(
+                    columns={v: k for k, v in published_id_columns(country_code).items()}
+                )
                 adm = chosen_adm
             except Exception as e:
                 context.log.warning(
@@ -387,7 +393,9 @@ def risk_score_asset(context, prep_visualization_asset: List[str]) -> list[str]:
             Path(parquet_path).stem.replace("_combined", "_risk") + ".parquet"
         )
 
-        results.to_parquet(out_path, index=False)
+        results.rename(columns=published_id_columns(country_code)).to_parquet(
+            out_path, index=False
+        )
 
         context.log.info(f"[{country_code}] Risk scores written: {out_path}")
 

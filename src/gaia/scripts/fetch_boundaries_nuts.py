@@ -9,8 +9,31 @@ from gaia.defs.constants import (
     NUTS_LEVELS,
     NUTS_YEAR,
 )
-from gaia.defs.partitions import NUTS_ADM1_LEVELS
+from gaia.defs.partitions import NUTS_ADM1_LEVELS, NUTS_COUNTRIES
 from gaia.scripts.download_utils import download_file
+
+
+def nuts_levels(country_code):
+    """Admin level -> NUTS level of a NUTS country (ADM0 is NUTS0)."""
+    levels = {"ADM0": 0, **NUTS_LEVELS}
+    if country_code in NUTS_ADM1_LEVELS:
+        levels["ADM1"] = NUTS_ADM1_LEVELS[country_code]
+    return levels
+
+
+def published_id_columns(country_code):
+    """Renames applied to the ID columns of published files (S3 CSVs, risk
+    parquet, PMTiles): NUTS countries carry NUTS codes, not OCHA pcodes, e.g.
+    ADM2_PCODE -> NUTS3_CODE. Internally the pipeline always uses *_PCODE.
+    Empty for OCHA countries."""
+    if country_code not in NUTS_COUNTRIES:
+        return {}
+    renames = {
+        f"{adm}_PCODE": f"NUTS{level}_CODE"
+        for adm, level in nuts_levels(country_code).items()
+    }
+    renames["ADM_PCODE"] = "NUTS_CODE"
+    return renames
 
 
 def load_nuts_level(level, country_code):
@@ -49,10 +72,11 @@ def download_nuts_boundaries(country_code):
     country_code = country_code.upper()
     os.makedirs(os.path.join("data", country_code), exist_ok=True)
 
-    nuts_levels = {**NUTS_LEVELS}
-    if country_code in NUTS_ADM1_LEVELS:
-        nuts_levels["ADM1"] = NUTS_ADM1_LEVELS[country_code]
-    levels = {adm: load_nuts_level(lvl, country_code) for adm, lvl in nuts_levels.items()}
+    levels = {
+        adm: load_nuts_level(lvl, country_code)
+        for adm, lvl in nuts_levels(country_code).items()
+        if adm != "ADM0"
+    }
     if levels["ADM2"].empty:
         raise ValueError(f"{country_code}: no NUTS regions found")
 

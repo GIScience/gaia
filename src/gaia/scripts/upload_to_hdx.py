@@ -6,6 +6,8 @@ import sys
 from importlib.resources import files
 from types import SimpleNamespace
 
+from gaia.defs.constants import NUTS_YEAR
+from gaia.scripts.fetch_boundaries_nuts import published_id_columns
 from hdx.api.configuration import Configuration
 from hdx.data.dataset import Dataset
 from datetime import datetime, timezone, timedelta
@@ -191,6 +193,13 @@ def create_country_dataset(
     # names below match the real files instead of assuming ADM2.
     admin_level = infer_admin_level(links, existing_resources)
     admin_level_num = admin_level.replace("ADM", "")
+    # NUTS countries publish NUTS codes instead of OCHA pcodes (see upload_s3)
+    nuts_id_col = published_id_columns(country_code).get(f"{admin_level}_PCODE")
+    id_column_note = (
+        f"- **{nuts_id_col}** – NUTS {NUTS_YEAR} region code (Eurostat), not an OCHA pcode"
+        if nuts_id_col
+        else f"- **{admin_level}_PCODE** – Administrative division code ({admin_level})"
+    )
 
     # --- Start of your original Dataset Notes ---
     cyclone_section = (
@@ -198,7 +207,7 @@ def create_country_dataset(
 #### **Cyclone Exposure (`{country_code}_{admin_level}_cyclone_exposure`)**
 Represents the exposure of populations and facilities to cyclones, based on historical cyclone tracks and intensity categories (1–3). Vulnerable populations and facilities are quantified per admin unit.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **kt34_total_pop_cat1 / cat2 / cat3**, **kt34_female_pop_cat1 / cat2 / cat3**, **kt34_children_u5_cat1 / cat2 / cat3**, etc. – Population exposed to cyclone categories 1–3
 - **kt34_education_perc / count_cat1 / cat2 / cat3**, **kt34_hospitals_perc / count_cat1 / cat2 / cat3**, **kt34_primary_healthcare_perc / count_cat1 / cat2 / cat3** – Facilities exposed to cyclone categories
 - **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time (minutes) from at-risk areas to safe zones
@@ -248,7 +257,7 @@ All layers are derived from [HeiGIT’s GAIA Pipeline](https://giscience.github.
 #### **Access to Services (`{country_code}_{admin_level}_access`)**
 Represents the share of the population with access to key facilities within defined distances or travel times.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **access_pop_education_5km / 10km / 20km** – Population within 5, 10, and 20 km of educational facilities
 - **access_pop_hospitals_30min / 1h / 2h** – Population within 30 minutes, 1 hour, and 2 hours of a hospital
 - **access_pop_primary_healthcare_30min / 1h / 2h** – Population within 30 minutes, 1 hour, and 2 hours of a primary health care facility
@@ -260,7 +269,7 @@ Data Source: [openrouteservice (ORS)](https://openrouteservice.org/)
 #### **Facilities (`{country_code}_{admin_level}_facilities`)**
 Counts of essential service facilities within each district.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **education_count** – Number of educational facilities
 - **hospitals_count** – Number of hospitals
 - **primary_healthcare_count** – Number of primary health care facilities
@@ -277,7 +286,7 @@ Combines **Access to Services**, **Facilities**, **Evacuability**, and **Rural A
 #### **Demographics (`{country_code}_{admin_level}_demographics`)**
 Shows the population composition by age and gender.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **total_pop** – Total population
 - **female_pop** – Total female population
 - **children_u5** – Population under 5 years old
@@ -294,7 +303,7 @@ Data Source: [Worldpop](https://www.worldpop.org/)
 Same demographic breakdown as above, but limited to rural populations. Rural areas are those outside urban extents,
 typically characterized by lower population density, agricultural or natural land use, and limited infrastructure compared to urban centers.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **total_pop_rural**, **female_pop_rural**, **children_u5_rural**, **female_u5_rural**, **elderly_rural**, **pop_u15_rural**, **female_u15_rural** – Rural demographic counts
 - **rural_pop_perc** – Percentage of total population living in rural areas
 
@@ -305,7 +314,7 @@ Data Source: [Global Human Settlement Layer (GHSL)](https://human-settlement.eme
 #### **Rural Accessibility Index (RAI) (`{country_code}_{admin_level}_rai`)**
 Percentage of rural population living within 2 km of a paved road. Results are provided for multiple demographic groups and as a dependency ratio for the accessible rural population.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **rural_access_total_pop**, **rural_access_female_pop**, **rural_access_children_u5**, **rural_access_female_u5**, **rural_access_elderly**, **rural_access_pop_u15**, **rural_access_female_u15**, **rural_access_wra_pop**, **rural_access_dependents**, **rural_access_working** – Population in rural areas within 2 km of a paved road
 - **rural_access_dependency_ratio** – Dependency ratio within accessible rural areas
 - **RAI_total_pop**, **RAI_female_pop**, **RAI_children_u5**, **RAI_female_u5**, **RAI_elderly**, **RAI_pop_u15**, **RAI_female_u15**, **RAI_wra_pop** – Rural Accessibility Index (%) per demographic group
@@ -321,7 +330,7 @@ Combines **Demographics** and **Rural Population** indicators.
 #### **Evacuability (`{country_code}_{admin_level}_evacuability`)**
 Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the nearest safe zone, computed using least-cost path analysis on a motorized friction surface.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **RP_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from flooded areas to safe zones (per return period)
 - **kt34_evac_time_minutes_mean / max / median** – Mean, max, and median travel time from cyclone-affected areas to safe zones
 
@@ -334,7 +343,7 @@ Travel time (in minutes) from at-risk areas (flooded or cyclone-affected) to the
 #### **Flood Exposure (`{country_code}_{admin_level}_flood_exposure`)**
 Shows population and facility exposure to flooding at 30 cm depth for multiple return periods.
 
-- **{admin_level}_PCODE** – Administrative division code ({admin_level})
+{id_column_note}
 - **total_pop_30cm**, **female_pop_30cm**, **children_u5_30cm**, **female_u5_30cm**, **elderly_30cm**, **pop_u15_30cm**, **female_u15_30cm** – Exposed population by group
 - **education_30cm_pct / count**, **hospitals_30cm_pct / count**, **primary_healthcare_30cm_pct / count** – Facility exposure (percentage and count)
 
