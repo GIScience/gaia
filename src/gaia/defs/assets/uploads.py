@@ -1,11 +1,14 @@
 import os
+import re
 
+import pandas as pd
 import requests
 import dagster as dg
 
 from gaia.defs.partitions import country_partitions, multi_partitions
 from gaia.defs.constants import HdxUploadConfig
 from gaia.defs.resources import S3Resource, HdxResource
+from gaia.defs.utils import check_ids_match_boundary
 
 # Indicator files every HDX country page must have before it is created/updated.
 REQUIRED_INDICATOR_LABELS = [
@@ -56,6 +59,16 @@ def upload_s3_asset(context, s3: S3Resource) -> None:
         return
 
     context.log.info(f"[{country}] Found {category} outputs: {matched}")
+
+    # Indicators computed on an older boundary version must not reach S3/HDX
+    for filename in matched:
+        level = re.search(r"_(ADM\d)_", filename)
+        if filename.endswith(".csv") and level:
+            df = pd.read_csv(os.path.join(output_dir, filename))
+            check_ids_match_boundary(
+                df[f"{level.group(1)}_PCODE"], country, level.group(1), filename
+            )
+
     s3.upload(country, category)
     context.log.info(f"[{country}] Uploaded {category} dataset(s) to S3 successfully.")
 

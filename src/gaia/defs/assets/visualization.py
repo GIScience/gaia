@@ -15,6 +15,7 @@ from gaia.defs.partitions import NUTS_COUNTRIES, country_partitions
 from gaia.defs.resources import S3Resource
 from gaia.defs.constants import NUTS_ATTRIBUTION, UNPUBLISHED_INDICATOR_PREFIXES
 from gaia.defs.risk import compute_risk_scores
+from gaia.defs.utils import check_ids_match_boundary
 from gaia.scripts.fetch_boundaries_nuts import published_id_columns
 
 
@@ -326,6 +327,12 @@ def prep_visualization_asset(context) -> list[str]:
         if merged is None or merged.empty:
             context.log.warning(f"[{country_code}] Nothing to write for {adm}.")
             continue
+
+        # The S3 CSVs may stem from an older boundary version than the one
+        # boundary_asset just wrote; never publish parquet/PMTiles that disagree.
+        check_ids_match_boundary(
+            merged[id_col], country_code, adm, f"Combined {adm} indicators"
+        )
 
         out_path = output_dir / f"{country_code}_{adm}_combined.parquet"
 

@@ -1,6 +1,6 @@
+import os
 from pathlib import Path
 import geopandas as gpd
-import rioxarray
 import pandas as pd
 import argparse
 import logging
@@ -71,7 +71,7 @@ def compute_access_population(
     country_code, admin_level, gdf_admin, work_dir, output_dir, context
 ):
     """
-    Compute how much vulnerable population lives within accessibility isochrones,
+    Compute how much population lives within accessibility isochrones,
     grouped by chosen administrative level.
     """
 
@@ -85,14 +85,16 @@ def compute_access_population(
         context.info(f"CSV already exists, skipping: {out_csv}")
         return str(out_csv)
 
-    # --- ensure vulnerable population raster ---
+    # --- total population raster ---
+    # Only total_pop: the other WorldPop indicator rasters are overlapping
+    # subgroups of it, so summing them would count people several times.
     context.info("Fetching WorldPop rasters…")
     indicator_tifs = fetch_worldpop(country_code)
-    pop_rasters = [rioxarray.open_rasterio(p).squeeze() for p in indicator_tifs]
-
-    vuln_pop = sum(pop_rasters)
-    vuln_tmp = work_dir / f"{country_code}_vulnerable_pop.tif"
-    vuln_pop.rio.to_raster(vuln_tmp)
+    pop_tif = next(
+        p
+        for p in indicator_tifs
+        if os.path.basename(p).startswith(f"{country_code}_pop_total_pop_")
+    )
 
     # Initialize results table with admin PCODE
     admin_col = f"{admin_level}_PCODE"
@@ -132,7 +134,7 @@ def compute_access_population(
                 continue
 
             stats = zonal_stats(
-                admin_in_range, vuln_tmp, stats="sum", nodata=0, geojson_out=True
+                admin_in_range, pop_tif, stats="sum", nodata=0, geojson_out=True
             )
 
             if not stats:

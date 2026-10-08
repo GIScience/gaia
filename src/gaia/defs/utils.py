@@ -65,6 +65,29 @@ def load_admin_boundary(base_path: Path, country_code: str, admin_level: str):
     return level, boundary_path, gdf, id_col
 
 
+def check_ids_match_boundary(ids, country_code: str, admin_level: str, source: str):
+    """Raise unless `ids` are exactly the region IDs of the country's current
+    boundary file, e.g. when indicators were computed on an older boundary
+    version (OCHA revision, switch to NUTS)."""
+    path = Path("data") / country_code / f"{country_code}_{admin_level}.geojson"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"[{country_code}] Can't check {source}: boundary {path} not found"
+        )
+    expected = set(
+        gpd.read_file(path, ignore_geometry=True)[f"{admin_level}_PCODE"].astype(str)
+    )
+    actual = set(pd.Series(ids).astype(str))
+    if actual != expected:
+        missing, extra = sorted(expected - actual), sorted(actual - expected)
+        raise ValueError(
+            f"[{country_code}] {source} doesn't match the current {admin_level} "
+            f"boundary ({len(actual)} vs {len(expected)} regions; {len(missing)} "
+            f"missing, e.g. {missing[:3]}; {len(extra)} unknown, e.g. {extra[:3]}). "
+            "Recompute the indicators on the current boundary."
+        )
+
+
 def dedupe_adm_pcode(df: pd.DataFrame) -> pd.DataFrame:
     """Collapse ADM*_PCODE merge artifacts into a single ADM_PCODE column."""
     adm_cols = [c for c in df.columns if c.startswith("ADM") and c.endswith("_PCODE")]
