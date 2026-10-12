@@ -24,11 +24,13 @@ from gaia.defs.partitions import country_partitions
 )
 def cleanup_asset(context):
     """
-    Deletes ALL intermediate files for the given country,
-    keeping ONLY the Output/ folder.
+    Deletes ALL intermediate files for the given country, keeping ONLY the
+    Output/ folder and the boundary GeoJSONs.
 
     Structure kept:
         data/<COUNTRY>/
+            <COUNTRY>_ADM*.geojson   (boundaries the outputs were computed on;
+                                      upload_s3_asset checks the outputs against them)
             Output/
                 final CSVs ...
 
@@ -53,6 +55,10 @@ def cleanup_asset(context):
     # Step 1: Collect what should be preserved
     # --------------------------------------------------------
     preserved = set()
+
+    # Boundaries the outputs were computed on (see check_ids_match_boundary)
+    for p in base_dir.glob(f"{country_code}_ADM*.geojson"):
+        preserved.add(p.resolve())
 
     # Always preserve Output/
     if output_dir.exists():
