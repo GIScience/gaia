@@ -1,6 +1,6 @@
 import os
-import sys
 import math
+import time
 from typing import List
 import numpy as np
 import rasterio
@@ -9,6 +9,7 @@ import geopandas as gpd
 import argparse
 import logging
 import shutil
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rasterio import windows
 from rasterio.transform import from_bounds
@@ -52,10 +53,25 @@ TARGET_RESOLUTION = 1000  # meters
 # -------------------------
 
 
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_RETRY_WAIT_S = 10  # grows linearly: 10 s, 20 s, ...
+
+
 def download_url(url, dest_path):
+    """Download with retries: the WorldPop server occasionally drops
+    connections, especially under many parallel requests. Client errors
+    (e.g. 404) are not retried."""
     from gaia.scripts.download_utils import download_file
 
-    download_file(url, dest_path)
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            return download_file(url, dest_path)
+        except (requests.RequestException, RuntimeError) as e:
+            response = getattr(e, "response", None)
+            client_error = response is not None and 400 <= response.status_code < 500
+            if client_error or attempt == DOWNLOAD_ATTEMPTS:
+                raise
+            time.sleep(DOWNLOAD_RETRY_WAIT_S * attempt)
 
 
 def _downsample_sum(path: str, scale: int) -> np.ndarray:
@@ -225,7 +241,7 @@ def fetch_worldpop(country, context_log=None, worldpop_code=None):
                 fut.result()
         except Exception as e:
             context_log.error(f"Failed to download WorldPop bin: {e}")
-            sys.exit(1)
+            raise RuntimeError(f"[{country}] WorldPop download failed: {e}") from e
 
     processed = []
     for ind_name, ind in INDICATORS.items():
