@@ -71,6 +71,11 @@ def coping_asset(
                     context.log.warning(
                         f"[{country_code}] Evacuability CSV missing ID column '{id_col}', skipping"
                     )
+            else:
+                context.log.warning(
+                    f"[{country_code}] No evacuability CSV available, coping has no "
+                    "evacuation columns (rerun evacuability_asset if one exists in Output/)"
+                )
 
             # Merge RAI CSV if available
             if rai_csv and os.path.exists(rai_csv):

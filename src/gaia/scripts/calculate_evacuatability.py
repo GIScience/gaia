@@ -417,7 +417,9 @@ def compute_evacuability_csv(
 
     CSV location: data/{country_code}/Output/{country_code}_{admin_level}_evacuability.csv
 
-    Returns the path to the CSV, or None if no work was done.
+    Returns the path to the CSV, or None if no work was done. An existing CSV
+    is returned as is: the hazard rasters it needs are deleted by cleanup_asset
+    and not recreated on reruns, so recomputing would produce nothing.
     """
     threshold = flood_threshold if flood_threshold is not None else FLOOD_THRESHOLD
     log = context.info if hasattr(context, "info") else print
@@ -431,6 +433,11 @@ def compute_evacuability_csv(
     temp_dir = base_path / "Temporary"
     output_dir = base_path / "Output"
 
+    out_csv = output_dir / f"{country_code}_{admin_level}_evacuability.csv"
+    if out_csv.exists():
+        log(f"[{country_code}] Evacuability CSV already exists, skipping: {out_csv}")
+        return str(out_csv)
+
     level, _, gdf, id_col = load_admin_boundary(base_path, country_code, admin_level)
     if not level:
         log(f"[{country_code}] No boundary found for {admin_level} or lower levels")
@@ -441,6 +448,9 @@ def compute_evacuability_csv(
     admin_level = level
 
     out_csv = output_dir / f"{country_code}_{admin_level}_evacuability.csv"
+    if out_csv.exists():
+        log(f"[{country_code}] Evacuability CSV already exists, skipping: {out_csv}")
+        return str(out_csv)
 
     df = pd.DataFrame({id_col: gdf[id_col]})
     had_data = False
